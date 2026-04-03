@@ -1,0 +1,238 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Building2, Calendar, ChevronRight, Search, Edit2, Trash2 } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Account } from '@/src/types';
+
+const AccountManagement = () => {
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [newAccountName, setNewAccountName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const user = JSON.parse(localStorage.getItem('ems_user') || '{}');
+
+  const getHeaders = () => ({
+    'Content-Type': 'application/json',
+    'x-user-id': user.id?.toString() || '',
+    'x-account-id': user.account_id?.toString() || '',
+    'x-user-role': user.role || ''
+  });
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch('/api/accounts', { headers: getHeaders() });
+      if (res.ok) {
+        setAccounts(await res.json());
+      } else {
+        setError('Failed to fetch accounts');
+      }
+    } catch (err) {
+      setError('Network error loading accounts');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAccounts();
+  }, []);
+
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAccountName.trim()) return;
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ name: newAccountName })
+      });
+      if (res.ok) {
+        setNewAccountName('');
+        fetchAccounts();
+      }
+    } catch (err) {
+      setError('Failed to create account');
+    }
+  };
+
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [editName, setEditName] = useState('');
+
+  const handleEditAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccount || !editName.trim()) return;
+    try {
+      const res = await fetch(`/api/accounts/${editingAccount.id}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ name: editName })
+      });
+      if (res.ok) {
+        setEditingAccount(null);
+        fetchAccounts();
+      }
+    } catch (err) {
+      setError('Failed to update account');
+    }
+  };
+
+  const handleDeleteAccount = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this account? This will also deactivate all users associated with it.')) return;
+    try {
+      const res = await fetch(`/api/accounts/${id}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      });
+      if (res.ok) {
+        fetchAccounts();
+      }
+    } catch (err) {
+      setError('Failed to delete account');
+    }
+  };
+
+  const filteredAccounts = accounts.filter(a => 
+    a.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (loading) return <div className="p-8 text-center">Loading accounts...</div>;
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-10 p-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-primary/10 rounded-2xl text-primary">
+            <Building2 size={32} />
+          </div>
+          <div>
+            <h1 className="font-headline text-3xl font-bold text-on-surface tracking-tight">System Accounts</h1>
+            <p className="font-body text-on-surface-variant">Manage multi-tenant organization access</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
+            <input 
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search accounts..."
+              className="bg-surface-container-low border border-outline-variant/20 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 w-64"
+            />
+          </div>
+          <form onSubmit={handleCreateAccount} className="flex gap-2">
+            <input 
+              type="text"
+              value={newAccountName}
+              onChange={(e) => setNewAccountName(e.target.value)}
+              placeholder="New account name..."
+              className="bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl font-bold text-sm hover:bg-primary/90 transition-colors">
+              <Plus size={18} />
+              Create
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-4 bg-error/10 text-error rounded-xl font-body text-sm font-bold">
+          {error}
+        </div>
+      )}
+
+      {editingAccount && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-surface-container-lowest p-8 rounded-[2rem] w-full max-w-md shadow-2xl"
+          >
+            <h2 className="text-2xl font-bold mb-6">Edit Account</h2>
+            <form onSubmit={handleEditAccount} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold mb-2">Account Name</label>
+                <input 
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button 
+                  type="button"
+                  onClick={() => setEditingAccount(null)}
+                  className="flex-1 px-4 py-3 bg-surface-container-high rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 px-4 py-3 bg-primary text-on-primary rounded-xl font-bold"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredAccounts.map((account, i) => (
+          <motion.div 
+            key={account.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className="bg-surface-container-lowest p-6 rounded-[2rem] border border-outline-variant/10 shadow-sm hover:shadow-md transition-all group relative"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2 bg-primary/5 rounded-lg text-primary group-hover:bg-primary group-hover:text-on-primary transition-colors">
+                <Building2 size={24} />
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    setEditingAccount(account);
+                    setEditName(account.name);
+                  }}
+                  className="p-2 hover:bg-primary/10 rounded-lg text-primary transition-colors"
+                  title="Edit Account"
+                >
+                  <Edit2 size={16} />
+                </button>
+                <button 
+                  onClick={() => handleDeleteAccount(account.id)}
+                  className="p-2 hover:bg-error/10 rounded-lg text-error transition-colors"
+                  title="Delete Account"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+            
+            <h3 className="font-headline text-xl font-bold text-on-surface mb-2">{account.name}</h3>
+            
+            <div className="flex items-center gap-2 text-xs text-on-surface-variant mb-6">
+              <Calendar size={14} />
+              <span>Created {new Date(account.created_at).toLocaleDateString()}</span>
+            </div>
+
+            <button className="w-full flex items-center justify-between p-3 bg-surface-container-low rounded-xl text-sm font-bold text-on-surface hover:bg-surface-container-high transition-colors">
+              Manage Organization
+              <ChevronRight size={18} className="text-primary" />
+            </button>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default AccountManagement;
