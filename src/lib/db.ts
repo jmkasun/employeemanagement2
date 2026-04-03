@@ -24,6 +24,10 @@ export function getPool() {
       ssl: {
         rejectUnauthorized: false,
       },
+      // Serverless optimizations:
+      max: 1, // Each Vercel function instance should only need 1 connection
+      idleTimeoutMillis: 1000, // Close idle connections quickly
+      connectionTimeoutMillis: 5000, // Wait up to 5s for a connection
     });
 
     pool.on('error', (err) => {
@@ -35,9 +39,29 @@ export function getPool() {
   return pool;
 }
 
-export const query = (text: string, params?: any[]) => {
+export const query = async (text: string, params?: any[]) => {
   const p = getPool();
-  return p.query(text, params);
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      return await p.query(text, params);
+    } catch (err: any) {
+      // Retry on connection exhaustion errors
+      if (
+        err.message.includes('remaining connection slots') || 
+        err.message.includes('too many connections') ||
+        err.message.includes('connection limit exceeded')
+      ) {
+        retries--;
+        if (retries === 0) throw err;
+        console.warn(`Database connection busy, retrying... (${retries} retries left)`);
+        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return p.query(text, params); // Final attempt
 };
 
 export default { query, getPool };

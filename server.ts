@@ -24,6 +24,20 @@ export async function initDb() {
     throw new Error("DATABASE_URL environment variable is missing. Please set it in Vercel project settings.");
   }
   try {
+    // Check if e_accounts already exists to skip initialization
+    const tableCheck = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'e_accounts'
+      )
+    `);
+    
+    if (tableCheck.rows[0].exists) {
+      console.log('Database already initialized, skipping table creation.');
+      return;
+    }
+
+    console.log('Initializing database tables...');
     // Create e_accounts first as it's a dependency for others
     await query(`
       CREATE TABLE IF NOT EXISTS e_accounts (
