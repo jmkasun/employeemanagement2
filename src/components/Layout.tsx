@@ -26,9 +26,6 @@ const Sidebar = ({ onLogout }: { onLogout?: () => void }) => {
   return (
     <aside className="fixed left-0 top-0 h-screen z-40 hidden md:flex flex-col w-72 bg-slate-50 dark:bg-slate-900 border-r border-outline-variant/10">
       <div className="p-8 flex flex-col gap-2 border-b border-outline-variant/10">
-        <div className="font-headline font-extrabold text-blue-800 dark:text-blue-300 text-2xl tracking-tight uppercase leading-tight">
-          EMS - {user.account_name || 'MASTER'}
-        </div>
         <div className="flex items-center gap-3 mt-6">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary font-bold text-xl">
             {user.name?.charAt(0)}
@@ -64,10 +61,6 @@ const Sidebar = ({ onLogout }: { onLogout?: () => void }) => {
           <LogOut size={20} />
           <span>Sign Out</span>
         </button>
-        <div className="bg-surface-container-high rounded-xl p-4">
-          <p className="font-body text-[10px] uppercase font-bold text-on-surface-variant mb-1">Access Level</p>
-          <p className="font-headline font-bold text-on-surface capitalize">{user.role.replace('_', ' ')}</p>
-        </div>
       </div>
     </aside>
   );
