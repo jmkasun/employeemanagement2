@@ -145,6 +145,12 @@ export async function initDb() {
       await query(`ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES e_roles(id)`);
       await query(`ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES e_sections(id)`);
       await query(`ALTER TABLE e_attendance ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES e_sections(id)`);
+      
+      // Make old role and section columns nullable if they exist to avoid INSERT failures
+      await query(`ALTER TABLE e_employees ALTER COLUMN role DROP NOT NULL`).catch(() => {});
+      await query(`ALTER TABLE e_employees ALTER COLUMN section DROP NOT NULL`).catch(() => {});
+      await query(`ALTER TABLE e_attendance ALTER COLUMN section DROP NOT NULL`).catch(() => {});
+      
       console.log('Migration check complete: role_id and section_id columns verified.');
     } catch (migrationErr) {
       console.error('Migration error:', migrationErr);
@@ -383,7 +389,21 @@ const authenticate = (req: any, res: any, next: any) => {
       const result = await query(
         `INSERT INTO e_employees (account_id, name, nickname, role_id, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section_id, salary_type, avatar_url) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-        [account_id, name, nickname, role_id, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section_id, salary_type, avatar_url]
+        [
+          account_id, 
+          name, 
+          nickname, 
+          role_id === 0 ? null : role_id, 
+          join_date, 
+          employee_id, 
+          mobile, 
+          whatsapp, 
+          nic, 
+          tax_residency, 
+          section_id === 0 ? null : section_id, 
+          salary_type, 
+          avatar_url
+        ]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -404,7 +424,22 @@ const authenticate = (req: any, res: any, next: any) => {
         `UPDATE e_employees 
          SET name = $1, nickname = $2, role_id = $3, join_date = $4, mobile = $5, whatsapp = $6, nic = $7, tax_residency = $8, section_id = $9, salary_type = $10, avatar_url = $11, status = $12
          WHERE employee_id = $13 AND account_id = $14 AND deleted_at IS NULL RETURNING *`,
-        [name, nickname, role_id, join_date, mobile, whatsapp, nic, tax_residency, section_id, salary_type, avatar_url, status, req.params.id, account_id]
+        [
+          name, 
+          nickname, 
+          role_id === 0 ? null : role_id, 
+          join_date, 
+          mobile, 
+          whatsapp, 
+          nic, 
+          tax_residency, 
+          section_id === 0 ? null : section_id, 
+          salary_type, 
+          avatar_url, 
+          status, 
+          req.params.id, 
+          account_id
+        ]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: "Employee not found" });
       res.json(result.rows[0]);
@@ -489,7 +524,7 @@ const authenticate = (req: any, res: any, next: any) => {
     try {
       const result = await query(
         "INSERT INTO e_attendance (account_id, employee_id, date, check_in, check_out, status, section_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-        [account_id, employee_id, date, check_in, check_out, status, section_id]
+        [account_id, employee_id, date, check_in, check_out, status, section_id === 0 ? null : section_id]
       );
       
       // Fetch joined data for response
