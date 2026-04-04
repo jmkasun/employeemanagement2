@@ -25,9 +25,9 @@ export function getPool() {
         rejectUnauthorized: false,
       },
       // Serverless optimizations:
-      max: 1, // Each Vercel function instance should only need 1 connection
-      idleTimeoutMillis: 1000, // Close idle connections quickly
-      connectionTimeoutMillis: 5000, // Wait up to 5s for a connection
+      max: process.env.VERCEL === '1' ? 1 : 10, // Limit connections in serverless
+      idleTimeoutMillis: 30000, // Keep connections alive longer in serverless to avoid re-connect overhead
+      connectionTimeoutMillis: 10000, // Wait up to 10s for a connection
     });
 
     pool.on('error', (err) => {

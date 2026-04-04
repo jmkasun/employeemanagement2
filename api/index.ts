@@ -6,8 +6,9 @@ export default async (req: any, res: any) => {
   try {
     if (!initializationPromise) {
       console.log('Starting Vercel serverless function initialization...');
+      const start = Date.now();
       initializationPromise = initDb().then(() => {
-        console.log('Initialization complete.');
+        console.log(`Initialization complete in ${Date.now() - start}ms.`);
       }).catch(err => {
         console.error('Initialization failed:', err);
         initializationPromise = null; // Allow retry on next request

@@ -25,157 +25,166 @@ export async function initDb() {
   }
   try {
     console.log('Initializing database tables...');
-    // Create e_accounts first as it's a dependency for others
+    
+    // Combine all table creation into a single query to reduce round trips
     await query(`
       CREATE TABLE IF NOT EXISTS e_accounts (
         id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP
-      )
-    `);
+      );
 
-    // Create other tables in parallel
-    await Promise.all([
-      query(`
-        CREATE TABLE IF NOT EXISTS e_users (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          email TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          name TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'standard', -- 'super_admin', 'admin', 'standard'
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          deleted_at TIMESTAMP
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_roles (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          name TEXT NOT NULL,
-          deleted_at TIMESTAMP,
-          UNIQUE(account_id, name)
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_sections (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          name TEXT NOT NULL,
-          deleted_at TIMESTAMP,
-          UNIQUE(account_id, name)
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_projects (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          name TEXT NOT NULL,
-          deleted_at TIMESTAMP,
-          UNIQUE(account_id, name)
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_employees (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          name TEXT NOT NULL,
-          nickname TEXT,
-          role_id INTEGER REFERENCES e_roles(id),
-          join_date DATE NOT NULL,
-          employee_id TEXT NOT NULL,
-          status TEXT DEFAULT 'On-Duty',
-          mobile TEXT,
-          whatsapp TEXT,
-          nic TEXT,
-          tax_residency TEXT,
-          section_id INTEGER REFERENCES e_sections(id),
-          salary_type TEXT,
-          avatar_url TEXT,
-          deleted_at TIMESTAMP,
-          UNIQUE(account_id, employee_id)
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_employee_details (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          employee_id TEXT NOT NULL,
-          title TEXT,
-          content TEXT,
-          image_data TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          deleted_at TIMESTAMP
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_attendance (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          employee_id TEXT NOT NULL,
-          date DATE NOT NULL,
-          check_in TIME,
-          check_out TIME,
-          status TEXT,
-          section_id INTEGER REFERENCES e_sections(id),
-          project_id INTEGER REFERENCES e_projects(id),
-          deleted_at TIMESTAMP
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_leaves (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          employee_id TEXT NOT NULL,
-          type TEXT NOT NULL,
-          start_date DATE NOT NULL,
-          end_date DATE NOT NULL,
-          days INTEGER NOT NULL,
-          status TEXT DEFAULT 'Pending',
-          applied_on DATE DEFAULT CURRENT_DATE,
-          deleted_at TIMESTAMP
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_alerts (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          title TEXT NOT NULL,
-          description TEXT,
-          type TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          deleted_at TIMESTAMP
-        )
-      `),
-      query(`
-        CREATE TABLE IF NOT EXISTS e_settings (
-          id SERIAL PRIMARY KEY,
-          account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
-          key TEXT NOT NULL,
-          value TEXT NOT NULL,
-          UNIQUE(account_id, key)
-        )
-      `)
-    ]);
+      CREATE TABLE IF NOT EXISTS e_users (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'standard',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_roles (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        deleted_at TIMESTAMP,
+        UNIQUE(account_id, name)
+      );
+
+      CREATE TABLE IF NOT EXISTS e_sections (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        deleted_at TIMESTAMP,
+        UNIQUE(account_id, name)
+      );
+
+      CREATE TABLE IF NOT EXISTS e_projects (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        deleted_at TIMESTAMP,
+        UNIQUE(account_id, name)
+      );
+
+      CREATE TABLE IF NOT EXISTS e_employees (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        nickname TEXT,
+        role_id INTEGER REFERENCES e_roles(id),
+        join_date DATE NOT NULL,
+        employee_id TEXT NOT NULL,
+        status TEXT DEFAULT 'On-Duty',
+        mobile TEXT,
+        whatsapp TEXT,
+        nic TEXT,
+        tax_residency TEXT,
+        section_id INTEGER REFERENCES e_sections(id),
+        salary_type TEXT,
+        avatar_url TEXT,
+        deleted_at TIMESTAMP,
+        UNIQUE(account_id, employee_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS e_employee_details (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        title TEXT,
+        content TEXT,
+        image_data TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_attendance (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        date DATE NOT NULL,
+        check_in TIME,
+        check_out TIME,
+        status TEXT,
+        section_id INTEGER REFERENCES e_sections(id),
+        project_id INTEGER REFERENCES e_projects(id),
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_leaves (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        days INTEGER NOT NULL,
+        status TEXT DEFAULT 'Pending',
+        applied_on DATE DEFAULT CURRENT_DATE,
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_alerts (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        type TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_settings (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        UNIQUE(account_id, key)
+      );
+    `);
 
     // Migration: Add role_id and section_id to e_employees and e_attendance if they don't exist
     try {
-      await query(`ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES e_roles(id)`);
-      await query(`ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES e_sections(id)`);
-      await query(`ALTER TABLE e_attendance ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES e_sections(id)`);
-      await query(`ALTER TABLE e_attendance ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES e_projects(id)`);
-      
-      // Make old role and section columns nullable if they exist to avoid INSERT failures
-      await query(`ALTER TABLE e_employees ALTER COLUMN role DROP NOT NULL`).catch(() => {});
-      await query(`ALTER TABLE e_employees ALTER COLUMN section DROP NOT NULL`).catch(() => {});
-      await query(`ALTER TABLE e_attendance ALTER COLUMN section DROP NOT NULL`).catch(() => {});
+      await query(`
+        DO $$ 
+        BEGIN 
+          BEGIN
+            ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES e_roles(id);
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES e_sections(id);
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_attendance ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES e_sections(id);
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_attendance ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES e_projects(id);
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_employees ALTER COLUMN role DROP NOT NULL;
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_employees ALTER COLUMN section DROP NOT NULL;
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_attendance ALTER COLUMN section DROP NOT NULL;
+          EXCEPTION WHEN others THEN NULL; END;
+        END $$;
+      `);
       
       // Fix problematic foreign key constraints if they exist
       await query(`ALTER TABLE e_attendance DROP CONSTRAINT IF EXISTS e_attendance_employee_id_fkey`).catch(() => {});
       
       // Add proper composite foreign key for e_attendance to ensure data integrity
-      // This references the UNIQUE(account_id, employee_id) in e_employees
       await query(`
         ALTER TABLE e_attendance 
         ADD CONSTRAINT e_attendance_employee_account_fkey 
@@ -185,7 +194,6 @@ export async function initDb() {
       `).catch(() => {});
 
       // Migration: Fix unique constraints for multi-account support
-      // Drop old single-column unique constraints if they exist and ensure composite ones are present
       await query(`ALTER TABLE e_roles DROP CONSTRAINT IF EXISTS e_roles_name_key`).catch(() => {});
       await query(`ALTER TABLE e_roles ADD CONSTRAINT e_roles_account_name_key UNIQUE (account_id, name)`).catch(() => {});
       
@@ -198,7 +206,7 @@ export async function initDb() {
       console.log('Dropping old employee_id unique constraint...');
       await query(`ALTER TABLE e_employees DROP CONSTRAINT IF EXISTS e_employees_employee_id_key CASCADE`).catch((e) => console.log('Failed to drop constraint:', e.message));
       await query(`DROP INDEX IF EXISTS e_employees_employee_id_key CASCADE`).catch((e) => console.log('Failed to drop index:', e.message));
-      // Ensure the composite unique constraint exists (it's in the CREATE TABLE but might need to be added if it was missing)
+      
       console.log('Adding composite employee_id unique constraint...');
       await query(`ALTER TABLE e_employees ADD CONSTRAINT e_employees_account_employee_id_key UNIQUE (account_id, employee_id)`).catch((e) => console.log('Failed to add composite constraint:', e.message));
 
