@@ -227,7 +227,7 @@ const EmployeeProfile = () => {
               <div className="bg-surface-container-low p-3 rounded-xl">
                 <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Amount</p>
                 <p className="text-on-surface font-bold text-lg">
-                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'LKR' }).format(employee.salary || 0)}
+                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'LKR' }).format(employee.salary || 0).replace('LKR', 'Rs.')}
                 </p>
               </div>
             </div>

@@ -23,9 +23,13 @@ const PayrollManagement = () => {
   const [advances, setAdvances] = useState<PayrollAdvance[]>([]);
   const [loans, setLoans] = useState<PayrollLoan[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [employeeHistory, setEmployeeHistory] = useState<{ advances: PayrollAdvance[], loans: PayrollLoan[] }>({ advances: [], loans: [] });
 
   const fetchPayrollSummary = () => {
-    fetchWithAuth('/api/payroll/summary')
+    fetchWithAuth(`/api/payroll/summary?month=${selectedMonth}&year=${selectedYear}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) setEmployees(data);
@@ -34,7 +38,7 @@ const PayrollManagement = () => {
   };
 
   const fetchAdvances = () => {
-    fetchWithAuth('/api/payroll/advances')
+    fetchWithAuth(`/api/payroll/advances?month=${selectedMonth}&year=${selectedYear}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) setAdvances(data);
@@ -67,11 +71,29 @@ const PayrollManagement = () => {
 
   useEffect(() => {
     fetchPayrollSummary();
+    fetchAdvances();
+  }, [selectedMonth, selectedYear]);
+
+  useEffect(() => {
     fetchRoles();
     fetchSections();
-    fetchAdvances();
     fetchLoans();
   }, []);
+
+  const fetchEmployeeHistory = async (empId: string) => {
+    try {
+      const [advRes, loanRes] = await Promise.all([
+        fetchWithAuth(`/api/payroll/advances?employee_id=${empId}`),
+        fetchWithAuth(`/api/payroll/loans?employee_id=${empId}`)
+      ]);
+      const advData = await advRes.json();
+      const loanData = await loanRes.json();
+      setEmployeeHistory({ advances: advData, loans: loanData });
+      setShowHistoryModal(true);
+    } catch (err) {
+      console.error('Error fetching employee history:', err);
+    }
+  };
 
   const handleAdvanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,6 +189,29 @@ const PayrollManagement = () => {
           <h2 className="text-4xl font-extrabold font-headline tracking-tight text-on-surface">Payroll</h2>
           <p className="text-on-surface-variant max-w-md font-body leading-relaxed">Manage employee salaries, advances, and loans.</p>
         </div>
+        <div className="flex gap-2">
+          <select 
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+            className="bg-surface-container-low border-none rounded-xl px-4 py-2 text-sm font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+          >
+            {Array.from({ length: 12 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>
+                {new Date(0, i).toLocaleString('default', { month: 'long' })}
+              </option>
+            ))}
+          </select>
+          <select 
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            className="bg-surface-container-low border-none rounded-xl px-4 py-2 text-sm font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+          >
+            {Array.from({ length: 5 }, (_, i) => {
+              const year = new Date().getFullYear() - 2 + i;
+              return <option key={year} value={year}>{year}</option>;
+            })}
+          </select>
+        </div>
       </section>
 
       <div className="flex gap-4 border-b border-outline-variant/10">
@@ -261,23 +306,23 @@ const PayrollManagement = () => {
                   <div className="space-y-3 mb-6">
                     <div className="flex justify-between text-sm">
                       <span className="text-on-surface-variant">Base Salary</span>
-                      <span className="font-bold text-on-surface">LKR {emp.salary.toLocaleString()}</span>
+                      <span className="font-bold text-on-surface">Rs. {emp.salary.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-on-surface-variant">Advances (This Month)</span>
-                      <span className="font-bold text-error">- LKR {emp.total_advances.toLocaleString()}</span>
+                      <span className="text-on-surface-variant">Advances (Selected Month)</span>
+                      <span className="font-bold text-error">- Rs. {emp.total_advances.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-on-surface-variant">Loan Installments</span>
-                      <span className="font-bold text-error">- LKR {emp.total_loan_installments.toLocaleString()}</span>
+                      <span className="font-bold text-error">- Rs. {emp.total_loan_installments.toLocaleString()}</span>
                     </div>
                     <div className="pt-3 border-t border-outline-variant/10 flex justify-between">
                       <span className="font-bold text-on-surface">Payable Limit</span>
-                      <span className="font-bold text-primary">LKR {(emp.salary - emp.total_advances - emp.total_loan_installments).toLocaleString()}</span>
+                      <span className="font-bold text-primary">Rs. {(emp.salary - emp.total_advances - emp.total_loan_installments).toLocaleString()}</span>
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mb-2">
                     <button 
                       onClick={() => {
                         setSelectedEmployee(emp);
@@ -299,6 +344,16 @@ const PayrollManagement = () => {
                       Loan
                     </button>
                   </div>
+                  <button 
+                    onClick={() => {
+                      setSelectedEmployee(emp);
+                      fetchEmployeeHistory(emp.employee_id);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-surface-container text-on-surface-variant rounded-xl text-xs font-bold hover:bg-surface-container-high transition-all"
+                  >
+                    <History size={14} />
+                    View History
+                  </button>
                 </motion.div>
               ))}
             </div>
@@ -329,18 +384,28 @@ const PayrollManagement = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm font-bold text-on-surface">LKR {emp.salary.toLocaleString()}</div>
+                        <div className="text-sm font-bold text-on-surface">Rs. {emp.salary.toLocaleString()}</div>
                         <div className="text-[10px] text-on-surface-variant font-medium uppercase">{emp.salary_type}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-xs text-error font-bold">- LKR {(emp.total_advances + emp.total_loan_installments).toLocaleString()}</div>
+                        <div className="text-xs text-error font-bold">- Rs. {(emp.total_advances + emp.total_loan_installments).toLocaleString()}</div>
                         <div className="text-[10px] text-on-surface-variant">Adv: {emp.total_advances.toLocaleString()} | Loan: {emp.total_loan_installments.toLocaleString()}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm font-bold text-primary">LKR {(emp.salary - emp.total_advances - emp.total_loan_installments).toLocaleString()}</div>
+                        <div className="text-sm font-bold text-primary">Rs. {(emp.salary - emp.total_advances - emp.total_loan_installments).toLocaleString()}</div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => {
+                              setSelectedEmployee(emp);
+                              fetchEmployeeHistory(emp.employee_id);
+                            }}
+                            className="p-2 bg-surface-container text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-all"
+                            title="History"
+                          >
+                            <History size={16} />
+                          </button>
                           <button 
                             onClick={() => {
                               setSelectedEmployee(emp);
@@ -391,7 +456,7 @@ const PayrollManagement = () => {
                     <div className="text-xs text-on-surface-variant">{adv.employee_id}</div>
                   </td>
                   <td className="px-6 py-4 text-sm text-on-surface">{new Date(adv.date).toLocaleDateString()}</td>
-                  <td className="px-6 py-4 font-bold text-error">LKR {adv.amount.toLocaleString()}</td>
+                  <td className="px-6 py-4 font-bold text-error">Rs. {adv.amount.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md uppercase tracking-wider">{adv.status}</span>
                   </td>
@@ -426,9 +491,9 @@ const PayrollManagement = () => {
                     <div className="font-bold text-on-surface">{loan.name}</div>
                     <div className="text-xs text-on-surface-variant">{loan.employee_id}</div>
                   </td>
-                  <td className="px-6 py-4 font-bold text-on-surface">LKR {loan.amount.toLocaleString()}</td>
+                  <td className="px-6 py-4 font-bold text-on-surface">Rs. {loan.amount.toLocaleString()}</td>
                   <td className="px-6 py-4 text-sm text-on-surface">{loan.repayment_period} Months</td>
-                  <td className="px-6 py-4 font-bold text-error">LKR {loan.monthly_installment.toLocaleString()}</td>
+                  <td className="px-6 py-4 font-bold text-error">Rs. {loan.monthly_installment.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md uppercase tracking-wider">{loan.status}</span>
                   </td>
@@ -475,12 +540,12 @@ const PayrollManagement = () => {
                   </div>
                   <div>
                     <div className="font-bold text-on-surface">{selectedEmployee.name}</div>
-                    <div className="text-xs text-on-surface-variant">Payable Limit: LKR {(selectedEmployee.salary - selectedEmployee.total_advances - selectedEmployee.total_loan_installments).toLocaleString()}</div>
+                    <div className="text-xs text-on-surface-variant">Payable Limit: Rs. {(selectedEmployee.salary - selectedEmployee.total_advances - selectedEmployee.total_loan_installments).toLocaleString()}</div>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Advance Amount (LKR)</label>
+                  <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Advance Amount (Rs.)</label>
                   <input 
                     type="number" 
                     required
@@ -545,13 +610,13 @@ const PayrollManagement = () => {
                   </div>
                   <div>
                     <div className="font-bold text-on-surface">{selectedEmployee.name}</div>
-                    <div className="text-xs text-on-surface-variant">Max Loan: LKR 5,000</div>
+                    <div className="text-xs text-on-surface-variant">Max Loan: Rs. 5,000</div>
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Loan Amount (LKR)</label>
+                    <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Loan Amount (Rs.)</label>
                     <input 
                       type="number" 
                       required
@@ -583,7 +648,7 @@ const PayrollManagement = () => {
                     <div className="p-4 bg-secondary/5 rounded-xl border border-secondary/10">
                       <div className="flex justify-between text-sm">
                         <span className="text-on-surface-variant font-medium">Monthly Installment</span>
-                        <span className="font-bold text-secondary">LKR {(parseFloat(loanAmount) / parseInt(repaymentPeriod)).toLocaleString()}</span>
+                        <span className="font-bold text-secondary">Rs. {(parseFloat(loanAmount) / parseInt(repaymentPeriod)).toLocaleString()}</span>
                       </div>
                     </div>
                   )}
@@ -606,6 +671,116 @@ const PayrollManagement = () => {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showHistoryModal && selectedEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowHistoryModal(false)}
+              className="absolute inset-0 bg-on-surface/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-outline-variant/10 flex items-center justify-between">
+                <div>
+                  <h3 className="font-headline font-bold text-2xl text-on-surface">Payment History</h3>
+                  <p className="text-sm text-on-surface-variant">{selectedEmployee.name} ({selectedEmployee.employee_id})</p>
+                </div>
+                <button onClick={() => setShowHistoryModal(false)} className="p-2 hover:bg-surface-container rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="p-8 max-h-[60vh] overflow-y-auto space-y-8">
+                <section>
+                  <h4 className="font-bold text-sm uppercase tracking-widest text-primary mb-4 flex items-center gap-2">
+                    <ArrowUpRight size={16} />
+                    Advances History
+                  </h4>
+                  <div className="bg-surface-container-low rounded-2xl overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-surface-container border-b border-outline-variant/10">
+                          <th className="px-4 py-3 font-bold">Date</th>
+                          <th className="px-4 py-3 font-bold text-right">Amount</th>
+                          <th className="px-4 py-3 font-bold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant/10">
+                        {employeeHistory.advances.map(adv => (
+                          <tr key={adv.id}>
+                            <td className="px-4 py-3">{new Date(adv.date).toLocaleDateString()}</td>
+                            <td className="px-4 py-3 text-right font-bold text-error">Rs. {adv.amount.toLocaleString()}</td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-md uppercase tracking-wider">{adv.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                        {employeeHistory.advances.length === 0 && (
+                          <tr>
+                            <td colSpan={3} className="px-4 py-8 text-center text-on-surface-variant italic">No advance history.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section>
+                  <h4 className="font-bold text-sm uppercase tracking-widest text-secondary mb-4 flex items-center gap-2">
+                    <DollarSign size={16} />
+                    Loans History
+                  </h4>
+                  <div className="bg-surface-container-low rounded-2xl overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-surface-container border-b border-outline-variant/10">
+                          <th className="px-4 py-3 font-bold">Date</th>
+                          <th className="px-4 py-3 font-bold text-right">Total</th>
+                          <th className="px-4 py-3 font-bold text-right">Monthly</th>
+                          <th className="px-4 py-3 font-bold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant/10">
+                        {employeeHistory.loans.map(loan => (
+                          <tr key={loan.id}>
+                            <td className="px-4 py-3">{new Date(loan.date).toLocaleDateString()}</td>
+                            <td className="px-4 py-3 text-right font-bold">Rs. {loan.amount.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right font-bold text-error">Rs. {loan.monthly_installment.toLocaleString()}</td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-md uppercase tracking-wider">{loan.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                        {employeeHistory.loans.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-8 text-center text-on-surface-variant italic">No loan history.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
+
+              <div className="p-8 bg-surface-container-low border-t border-outline-variant/10">
+                <button 
+                  onClick={() => setShowHistoryModal(false)}
+                  className="w-full py-4 bg-on-surface text-surface rounded-xl font-bold hover:opacity-90 transition-all"
+                >
+                  Close History
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

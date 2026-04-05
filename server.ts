@@ -1083,14 +1083,29 @@ const authenticate = (req: any, res: any, next: any) => {
   // Payroll Endpoints
   app.get("/api/payroll/advances", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
+    const { month, year, employee_id } = req.query;
     try {
-      const result = await query(`
+      let q = `
         SELECT a.*, e.name 
         FROM e_payroll_advances a 
         JOIN e_employees e ON a.employee_id = e.employee_id AND a.account_id = e.account_id
         WHERE a.account_id = $1 AND a.deleted_at IS NULL AND e.deleted_at IS NULL
-        ORDER BY a.date DESC
-      `, [account_id]);
+      `;
+      const params: any[] = [account_id];
+      
+      if (month && year) {
+        params.push(`${year}-${month}-01`);
+        q += ` AND a.date >= $${params.length}::date AND a.date < ($${params.length}::date + interval '1 month')`;
+      }
+      
+      if (employee_id) {
+        params.push(employee_id);
+        q += ` AND a.employee_id = $${params.length}`;
+      }
+      
+      q += ` ORDER BY a.date DESC`;
+      
+      const result = await query(q, params);
       res.json(result.rows);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch advances" });
@@ -1113,14 +1128,24 @@ const authenticate = (req: any, res: any, next: any) => {
 
   app.get("/api/payroll/loans", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
+    const { employee_id } = req.query;
     try {
-      const result = await query(`
+      let q = `
         SELECT l.*, e.name 
         FROM e_payroll_loans l 
         JOIN e_employees e ON l.employee_id = e.employee_id AND l.account_id = e.account_id
         WHERE l.account_id = $1 AND l.deleted_at IS NULL AND e.deleted_at IS NULL
-        ORDER BY l.date DESC
-      `, [account_id]);
+      `;
+      const params: any[] = [account_id];
+      
+      if (employee_id) {
+        params.push(employee_id);
+        q += ` AND l.employee_id = $${params.length}`;
+      }
+      
+      q += ` ORDER BY l.date DESC`;
+      
+      const result = await query(q, params);
       res.json(result.rows);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch loans" });
@@ -1143,15 +1168,20 @@ const authenticate = (req: any, res: any, next: any) => {
 
   app.get("/api/payroll/summary", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
+    const { month, year } = req.query;
+    
+    const targetDate = (month && year) ? `${year}-${month}-01` : 'CURRENT_DATE';
+    const dateFilter = (month && year) ? `$2::date` : 'CURRENT_DATE';
+    
     try {
       // Get all employees with their salary info
       const employees = await query(`
         SELECT e.employee_id, e.name, e.salary, e.salary_type, e.avatar_url,
-               COALESCE((SELECT SUM(amount) FROM e_payroll_advances WHERE employee_id = e.employee_id AND account_id = e.account_id AND deleted_at IS NULL AND date >= date_trunc('month', CURRENT_DATE)), 0) as total_advances,
+               COALESCE((SELECT SUM(amount) FROM e_payroll_advances WHERE employee_id = e.employee_id AND account_id = e.account_id AND deleted_at IS NULL AND date >= date_trunc('month', ${dateFilter}) AND date < (date_trunc('month', ${dateFilter}) + interval '1 month')), 0) as total_advances,
                COALESCE((SELECT SUM(monthly_installment) FROM e_payroll_loans WHERE employee_id = e.employee_id AND account_id = e.account_id AND deleted_at IS NULL AND status = 'Approved'), 0) as total_loan_installments
         FROM e_employees e
         WHERE e.account_id = $1 AND e.deleted_at IS NULL
-      `, [account_id]);
+      `, [account_id, ...(month && year ? [targetDate] : [])]);
       
       res.json(employees.rows);
     } catch (err) {

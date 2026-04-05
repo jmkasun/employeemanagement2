@@ -12,8 +12,8 @@ const Sidebar = ({ onLogout }: { onLogout?: () => void }) => {
     { icon: Grid, label: 'Modules', path: '/modules' },
     { icon: Users, label: 'Employee', path: '/directory' },
     { icon: Timer, label: 'Attendance', path: '/attendance' },
-    { icon: CalendarOff, label: 'Leave', path: '/leave' },
     { icon: CreditCard, label: 'Payroll', path: '/payroll' },
+    { icon: CalendarOff, label: 'Leave', path: '/leave' },
   ];
 
   if (user.role === 'admin' || user.role === 'super_admin') {

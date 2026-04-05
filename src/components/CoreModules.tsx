@@ -33,20 +33,20 @@ const modules = [
     color: 'bg-emerald-50 text-emerald-600'
   },
   { 
-    id: 'leaves', 
-    label: 'Leave Management', 
-    description: 'Track leave requests and balances',
-    icon: Umbrella, 
-    path: '/leaves',
-    color: 'bg-amber-50 text-amber-600'
-  },
-  { 
     id: 'payroll', 
     label: 'Payroll & Benefits', 
     description: 'Manage salaries, bonuses and deductions',
     icon: CreditCard, 
     path: '/payroll',
     color: 'bg-purple-50 text-purple-600'
+  },
+  { 
+    id: 'leaves', 
+    label: 'Leave Management', 
+    description: 'Track leave requests and balances',
+    icon: Umbrella, 
+    path: '/leaves',
+    color: 'bg-amber-50 text-amber-600'
   },
   { 
     id: 'performance', 
