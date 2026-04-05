@@ -45,7 +45,7 @@ const modules = [
     label: 'Payroll & Benefits', 
     description: 'Manage salaries, bonuses and deductions',
     icon: CreditCard, 
-    path: '#',
+    path: '/payroll',
     color: 'bg-purple-50 text-purple-600'
   },
   { 

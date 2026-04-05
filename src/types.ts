@@ -42,6 +42,7 @@ export interface Employee {
   nic: string;
   tax_residency: string;
   salary_type: string;
+  salary: number;
   avatar_url: string;
   role?: string; // For display
   section?: string; // For display
@@ -92,4 +93,24 @@ export interface DashboardStats {
 
 export interface AppSettings {
   half_day_threshold: string;
+}
+
+export interface PayrollAdvance {
+  id: number;
+  employee_id: string;
+  amount: number;
+  date: string;
+  status: string;
+  name?: string;
+}
+
+export interface PayrollLoan {
+  id: number;
+  employee_id: string;
+  amount: number;
+  date: string;
+  status: string;
+  repayment_period: number; // in months
+  monthly_installment: number;
+  name?: string;
 }

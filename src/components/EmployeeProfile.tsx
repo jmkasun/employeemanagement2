@@ -213,8 +213,8 @@ const EmployeeProfile = () => {
               </div>
             </div>
             <div>
-              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Salary Type</p>
-              <div className="flex gap-2 p-1 bg-surface-container-low rounded-xl">
+              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Salary Details</p>
+              <div className="flex gap-2 p-1 bg-surface-container-low rounded-xl mb-3">
                 <button className={cn(
                   "flex-1 py-2 text-xs font-bold rounded-lg",
                   employee.salary_type === 'Daily' ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant"
@@ -223,6 +223,12 @@ const EmployeeProfile = () => {
                   "flex-1 py-2 text-xs font-bold rounded-lg",
                   employee.salary_type === 'Monthly' ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant"
                 )}>Monthly</button>
+              </div>
+              <div className="bg-surface-container-low p-3 rounded-xl">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Amount</p>
+                <p className="text-on-surface font-bold text-lg">
+                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'LKR' }).format(employee.salary || 0)}
+                </p>
               </div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Grid, Users, Timer, CalendarOff, Settings, Bell, LogOut, Building2 } from 'lucide-react';
+import { LayoutDashboard, Grid, Users, Timer, CalendarOff, Settings, Bell, LogOut, Building2, CreditCard } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { User } from '../types';
 
@@ -13,6 +13,7 @@ const Sidebar = ({ onLogout }: { onLogout?: () => void }) => {
     { icon: Users, label: 'Employee', path: '/directory' },
     { icon: Timer, label: 'Attendance', path: '/attendance' },
     { icon: CalendarOff, label: 'Leave', path: '/leave' },
+    { icon: CreditCard, label: 'Payroll', path: '/payroll' },
   ];
 
   if (user.role === 'admin' || user.role === 'super_admin') {
@@ -107,6 +108,7 @@ const BottomNav = () => {
     { icon: LayoutDashboard, label: 'Home', path: '/' },
     { icon: Users, label: 'Employee', path: '/directory' },
     { icon: Timer, label: 'Logs', path: '/attendance' },
+    { icon: CreditCard, label: 'Payroll', path: '/payroll' },
     { icon: CalendarOff, label: 'Leave', path: '/leave' },
   ];
 

@@ -144,6 +144,28 @@ export async function initDb() {
         value TEXT NOT NULL,
         UNIQUE(account_id, key)
       );
+
+      CREATE TABLE IF NOT EXISTS e_payroll_advances (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        date DATE DEFAULT CURRENT_DATE,
+        status TEXT DEFAULT 'Approved',
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_payroll_loans (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        repayment_period INTEGER NOT NULL,
+        monthly_installment NUMERIC NOT NULL,
+        date DATE DEFAULT CURRENT_DATE,
+        status TEXT DEFAULT 'Approved',
+        deleted_at TIMESTAMP
+      );
     `);
 
     // Migration: Add role_id and section_id to e_employees and e_attendance if they don't exist
@@ -173,6 +195,10 @@ export async function initDb() {
           
           BEGIN
             ALTER TABLE e_employees ALTER COLUMN section DROP NOT NULL;
+          EXCEPTION WHEN others THEN NULL; END;
+          
+          BEGIN
+            ALTER TABLE e_employees ADD COLUMN IF NOT EXISTS salary NUMERIC DEFAULT 0;
           EXCEPTION WHEN others THEN NULL; END;
           
           BEGIN
@@ -241,9 +267,9 @@ export async function initDb() {
       await query(`
         INSERT INTO e_employees (account_id, name, nickname, role, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section, salary_type, avatar_url)
         VALUES 
-        ($1, 'Samantha Richards', 'Sam', 'Senior Lead', '2021-10-12', 'EMP-2021-084', '+1 (555) 012-3456', '+1 (555) 012-3456', '198812345678', 'Domestic (Standard)', 'Operations & Logistics', 'Monthly', 'https://lh3.googleusercontent.com/aida-public/AB6AXuDXWVldVYDyIXMhQzxdkIjCbDlN7tCrCAB0ictQww9juBGGfOYZIGlbtmGB5yrdapzk5duIGGh2-AjVIxqHdVpCYkO7YaubRFRt_Ke0msJGwuJElCpoSv0fjWuU0HGsjuJs_kraZEkNsomynMmUv76hRo_QWMDQyd5ho1eeBE1dE6ewVQ1EWXZL5VPBBtbkHP-1LjfL2cRrv02avPn9iWruhfPUys4lgrR6GbGVMs73rhPKbJpHEH0XjJC8KSaeE7qjoqY7dKd7cCk'),
-        ($1, 'David Miller', 'Dave', 'Logistics Coordinator', '2022-03-15', 'EMP-2022-012', '+1 (555) 987-6543', '+1 (555) 987-6543', '199012345678', 'Domestic (Standard)', 'Logistics', 'Monthly', 'https://picsum.photos/seed/david/200/200'),
-        ($1, 'Elena Rodriguez', 'Elena', 'HR Specialist', '2023-01-10', 'EMP-2023-045', '+1 (555) 456-7890', '+1 (555) 456-7890', '199212345678', 'Domestic (Standard)', 'Human Resources', 'Monthly', 'https://picsum.photos/seed/elena/200/200')
+        ($1, 'Samantha Richards', 'Sam', 'Senior Lead', '2021-10-12', 'EMP-2021-084', '+1 (555) 012-3456', '+1 (555) 012-3456', '198812345678', 'Domestic (Standard)', 'Operations & Logistics', 'Daily', 'https://lh3.googleusercontent.com/aida-public/AB6AXuDXWVldVYDyIXMhQzxdkIjCbDlN7tCrCAB0ictQww9juBGGfOYZIGlbtmGB5yrdapzk5duIGGh2-AjVIxqHdVpCYkO7YaubRFRt_Ke0msJGwuJElCpoSv0fjWuU0HGsjuJs_kraZEkNsomynMmUv76hRo_QWMDQyd5ho1eeBE1dE6ewVQ1EWXZL5VPBBtbkHP-1LjfL2cRrv02avPn9iWruhfPUys4lgrR6GbGVMs73rhPKbJpHEH0XjJC8KSaeE7qjoqY7dKd7cCk'),
+        ($1, 'David Miller', 'Dave', 'Logistics Coordinator', '2022-03-15', 'EMP-2022-012', '+1 (555) 987-6543', '+1 (555) 987-6543', '199012345678', 'Domestic (Standard)', 'Logistics', 'Daily', 'https://picsum.photos/seed/david/200/200'),
+        ($1, 'Elena Rodriguez', 'Elena', 'HR Specialist', '2023-01-10', 'EMP-2023-045', '+1 (555) 456-7890', '+1 (555) 456-7890', '199212345678', 'Domestic (Standard)', 'Human Resources', 'Daily', 'https://picsum.photos/seed/elena/200/200')
       `, [accountId]);
 
       await query(`
@@ -514,11 +540,11 @@ const authenticate = (req: any, res: any, next: any) => {
 
   app.post("/api/employees", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
-    const { name, nickname, role_id, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section_id, salary_type, avatar_url } = req.body;
+    const { name, nickname, role_id, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section_id, salary_type, salary, avatar_url } = req.body;
     try {
       const result = await query(
-        `INSERT INTO e_employees (account_id, name, nickname, role_id, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section_id, salary_type, avatar_url) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        `INSERT INTO e_employees (account_id, name, nickname, role_id, join_date, employee_id, mobile, whatsapp, nic, tax_residency, section_id, salary_type, salary, avatar_url) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
         [
           account_id, 
           name, 
@@ -532,6 +558,7 @@ const authenticate = (req: any, res: any, next: any) => {
           tax_residency, 
           section_id === 0 ? null : section_id, 
           salary_type, 
+          salary || 0,
           avatar_url
         ]
       );
@@ -548,12 +575,12 @@ const authenticate = (req: any, res: any, next: any) => {
 
   app.put("/api/employees/:id", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
-    const { name, nickname, role_id, join_date, mobile, whatsapp, nic, tax_residency, section_id, salary_type, avatar_url, status } = req.body;
+    const { name, nickname, role_id, join_date, mobile, whatsapp, nic, tax_residency, section_id, salary_type, salary, avatar_url, status } = req.body;
     try {
       const result = await query(
         `UPDATE e_employees 
-         SET name = $1, nickname = $2, role_id = $3, join_date = $4, mobile = $5, whatsapp = $6, nic = $7, tax_residency = $8, section_id = $9, salary_type = $10, avatar_url = $11, status = $12
-         WHERE employee_id = $13 AND account_id = $14 AND deleted_at IS NULL RETURNING *`,
+         SET name = $1, nickname = $2, role_id = $3, join_date = $4, mobile = $5, whatsapp = $6, nic = $7, tax_residency = $8, section_id = $9, salary_type = $10, salary = $11, avatar_url = $12, status = $13
+         WHERE employee_id = $14 AND account_id = $15 AND deleted_at IS NULL RETURNING *`,
         [
           name, 
           nickname, 
@@ -565,6 +592,7 @@ const authenticate = (req: any, res: any, next: any) => {
           tax_residency, 
           section_id === 0 ? null : section_id, 
           salary_type, 
+          salary || 0,
           avatar_url, 
           status, 
           req.params.id, 
@@ -1049,6 +1077,85 @@ const authenticate = (req: any, res: any, next: any) => {
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
+  // Payroll Endpoints
+  app.get("/api/payroll/advances", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    try {
+      const result = await query(`
+        SELECT a.*, e.name 
+        FROM e_payroll_advances a 
+        JOIN e_employees e ON a.employee_id = e.employee_id AND a.account_id = e.account_id
+        WHERE a.account_id = $1 AND a.deleted_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY a.date DESC
+      `, [account_id]);
+      res.json(result.rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch advances" });
+    }
+  });
+
+  app.post("/api/payroll/advances", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { employee_id, amount } = req.body;
+    try {
+      const result = await query(
+        "INSERT INTO e_payroll_advances (account_id, employee_id, amount) VALUES ($1, $2, $3) RETURNING *",
+        [account_id, employee_id, amount]
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to request advance" });
+    }
+  });
+
+  app.get("/api/payroll/loans", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    try {
+      const result = await query(`
+        SELECT l.*, e.name 
+        FROM e_payroll_loans l 
+        JOIN e_employees e ON l.employee_id = e.employee_id AND l.account_id = e.account_id
+        WHERE l.account_id = $1 AND l.deleted_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY l.date DESC
+      `, [account_id]);
+      res.json(result.rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch loans" });
+    }
+  });
+
+  app.post("/api/payroll/loans", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { employee_id, amount, repayment_period, monthly_installment } = req.body;
+    try {
+      const result = await query(
+        "INSERT INTO e_payroll_loans (account_id, employee_id, amount, repayment_period, monthly_installment) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        [account_id, employee_id, amount, repayment_period, monthly_installment]
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to request loan" });
+    }
+  });
+
+  app.get("/api/payroll/summary", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    try {
+      // Get all employees with their salary info
+      const employees = await query(`
+        SELECT e.employee_id, e.name, e.salary, e.salary_type, e.avatar_url,
+               COALESCE((SELECT SUM(amount) FROM e_payroll_advances WHERE employee_id = e.employee_id AND account_id = e.account_id AND deleted_at IS NULL AND date >= date_trunc('month', CURRENT_DATE)), 0) as total_advances,
+               COALESCE((SELECT SUM(monthly_installment) FROM e_payroll_loans WHERE employee_id = e.employee_id AND account_id = e.account_id AND deleted_at IS NULL AND status = 'Approved'), 0) as total_loan_installments
+        FROM e_employees e
+        WHERE e.account_id = $1 AND e.deleted_at IS NULL
+      `, [account_id]);
+      
+      res.json(employees.rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch payroll summary" });
     }
   });
 

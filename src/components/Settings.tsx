@@ -37,7 +37,9 @@ const Settings = () => {
   const [error, setError] = useState('');
   const [accounts, setAccounts] = useState<{id: number, name: string}[]>([]);
   const [appSettings, setAppSettings] = useState({
-    half_day_threshold: '10:00'
+    half_day_threshold: '10:00',
+    max_loan_per_employee: '5000',
+    total_loan_per_month: '50000'
   });
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -736,9 +738,44 @@ const Settings = () => {
                         onChange={(e) => handleUpdateSetting('half_day_threshold', e.target.value)}
                         className="bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                       />
-                      {savingSettings && <span className="text-[10px] text-primary animate-pulse font-bold uppercase">Saving...</span>}
                     </div>
                   </div>
+
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-bold text-on-surface">Max Loan Per Employee (LKR)</label>
+                      <p className="text-xs text-on-surface-variant">Maximum amount a single employee can borrow.</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <input 
+                        type="number"
+                        value={appSettings.max_loan_per_employee}
+                        onChange={(e) => handleUpdateSetting('max_loan_per_employee', e.target.value)}
+                        className="bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-bold text-on-surface">Total Monthly Loan Limit (LKR)</label>
+                      <p className="text-xs text-on-surface-variant">Maximum total loans allowed for all employees in a single month.</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <input 
+                        type="number"
+                        value={appSettings.total_loan_per_month}
+                        onChange={(e) => handleUpdateSetting('total_loan_per_month', e.target.value)}
+                        className="bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+                  
+                  {savingSettings && (
+                    <div className="md:col-span-2">
+                      <span className="text-[10px] text-primary animate-pulse font-bold uppercase">Saving changes...</span>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

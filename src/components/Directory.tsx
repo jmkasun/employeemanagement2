@@ -28,7 +28,8 @@ const Directory = () => {
     nic: '',
     tax_residency: 'Domestic (Standard)',
     section_id: 0,
-    salary_type: 'Monthly',
+    salary_type: 'Daily',
+    salary: 0,
     avatar_url: '',
     status: 'On-Duty'
   };
@@ -200,7 +201,8 @@ const Directory = () => {
       nic: emp.nic || '',
       tax_residency: emp.tax_residency || 'Domestic (Standard)',
       section_id: emp.section_id || 0,
-      salary_type: emp.salary_type || 'Monthly',
+      salary_type: emp.salary_type || 'Daily',
+      salary: emp.salary || 0,
       avatar_url: emp.avatar_url || '',
       status: emp.status || 'On-Duty'
     });
@@ -478,6 +480,27 @@ const Directory = () => {
                       onChange={(e) => setNewEmployee({ ...newEmployee, nic: e.target.value })}
                       className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 font-body text-sm focus:ring-2 focus:ring-primary transition-all"
                       placeholder="198812345678"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Salary Type</label>
+                    <select 
+                      value={newEmployee.salary_type}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, salary_type: e.target.value })}
+                      className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 font-body text-sm focus:ring-2 focus:ring-primary transition-all"
+                    >
+                      <option value="Monthly">Monthly</option>
+                      <option value="Daily">Daily</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Salary Amount</label>
+                    <input 
+                      type="number" 
+                      value={newEmployee.salary}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, salary: parseFloat(e.target.value) || 0 })}
+                      className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 font-body text-sm focus:ring-2 focus:ring-primary transition-all"
+                      placeholder="0.00"
                     />
                   </div>
                 </div>
