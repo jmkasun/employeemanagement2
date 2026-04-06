@@ -174,6 +174,27 @@ export async function initDb() {
         status TEXT DEFAULT 'Approved',
         deleted_at TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS e_expenses (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES e_projects(id) ON DELETE SET NULL,
+        category TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        date DATE DEFAULT CURRENT_DATE,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS e_salary_advance_breakdown (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER REFERENCES e_accounts(id) ON DELETE CASCADE,
+        advance_id INTEGER REFERENCES e_payroll_advances(id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES e_projects(id) ON DELETE CASCADE,
+        amount NUMERIC NOT NULL,
+        deleted_at TIMESTAMP
+      );
     `);
 
     // Migration: Refactor employee_id to use integer ID instead of employee number
@@ -205,6 +226,13 @@ export async function initDb() {
           
           // 4. Drop old column (optional, but let's keep it for now as employee_number just in case, or drop if we are sure)
           // For now, let's keep it as employee_number.
+        }
+
+        // Ensure employee_number is nullable if it exists to avoid NOT NULL constraint errors
+        try {
+          await query(`ALTER TABLE ${tableName} ALTER COLUMN employee_number DROP NOT NULL`);
+        } catch (e) {
+          // Ignore if column doesn't exist
         }
       }
     } catch (migErr) {
@@ -1279,6 +1307,261 @@ const authenticate = (req: any, res: any, next: any) => {
       res.json(employees.rows);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch payroll summary" });
+    }
+  });
+
+  // Expenses Endpoints
+  app.get("/api/expenses", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { project_id, start_date, end_date, month, year } = req.query;
+    try {
+      let q = `
+        SELECT ex.*, p.name as project_name 
+        FROM e_expenses ex 
+        LEFT JOIN e_projects p ON ex.project_id = p.id
+        WHERE ex.account_id = $1 AND ex.deleted_at IS NULL
+      `;
+      const params: any[] = [account_id];
+
+      if (project_id) {
+        params.push(project_id);
+        q += ` AND ex.project_id = $${params.length}`;
+      }
+
+      if (start_date && end_date) {
+        params.push(start_date);
+        q += ` AND ex.date >= $${params.length}`;
+        params.push(end_date);
+        q += ` AND ex.date <= $${params.length}`;
+      } else if (month && year) {
+        params.push(`${year}-${month}-01`);
+        q += ` AND ex.date >= $${params.length}::date AND ex.date < ($${params.length}::date + interval '1 month')`;
+      }
+
+      q += ` ORDER BY ex.date DESC, ex.created_at DESC`;
+
+      const result = await query(q, params);
+      res.json(result.rows);
+    } catch (err) {
+      console.error("Error fetching expenses:", err);
+      res.status(500).json({ error: "Failed to fetch expenses" });
+    }
+  });
+
+  app.get("/api/reports/project-expenses", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { month, year } = req.query;
+    
+    try {
+      // 1. Get all projects
+      const projectsResult = await query(
+        "SELECT id, name FROM e_projects WHERE account_id = $1 AND deleted_at IS NULL",
+        [account_id]
+      );
+      const projects = projectsResult.rows;
+
+      const startDate = `${year}-${month}-01`;
+      const endDate = new Date(parseInt(year as string), parseInt(month as string), 0).toISOString().split('T')[0];
+
+      const reportData = [];
+
+      for (const project of projects) {
+        // 2. Get Paid Expenses (Salary Advances recorded in e_expenses)
+        const paidResult = await query(
+          `SELECT COALESCE(SUM(amount), 0) as total 
+           FROM e_expenses 
+           WHERE account_id = $1 AND project_id = $2 AND category = 'Salary Advance'
+           AND date >= $3 AND date <= $4 AND deleted_at IS NULL`,
+          [account_id, project.id, startDate, endDate]
+        );
+        const paidAmount = parseFloat(paidResult.rows[0].total);
+
+        // 3. Get Earned Salary (Total Expense based on attendance)
+        const earnedResult = await query(
+          `SELECT a.date, e.salary, e.salary_type
+           FROM e_attendance a
+           JOIN e_employees e ON a.employee_id = e.id
+           WHERE a.account_id = $1 AND a.project_id = $2
+           AND a.date >= $3 AND a.date <= $4 
+           AND a.status = 'Present'
+           AND a.deleted_at IS NULL`,
+          [account_id, project.id, startDate, endDate]
+        );
+
+        let totalEarned = 0;
+        earnedResult.rows.forEach(row => {
+          const salary = parseFloat(row.salary);
+          if (row.salary_type === 'Daily') {
+            totalEarned += salary;
+          } else if (row.salary_type === 'Monthly') {
+            totalEarned += salary / 30;
+          }
+        });
+
+        reportData.push({
+          project_id: project.id,
+          project_name: project.name,
+          paid_expenses: paidAmount,
+          pending_expenses: Math.max(0, totalEarned - paidAmount),
+          total_expenses: Math.max(paidAmount, totalEarned)
+        });
+      }
+
+      res.json(reportData);
+    } catch (err) {
+      console.error("Error generating project expense report:", err);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
+  app.get("/api/reports/project-expenses/:projectId/breakdown", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { projectId } = req.params;
+    const { month, year } = req.query;
+    
+    try {
+      const startDate = `${year}-${month}-01`;
+      const endDate = new Date(parseInt(year as string), parseInt(month as string), 0).toISOString().split('T')[0];
+
+      // Get all employees who either worked or received an advance on this project
+      const employeesResult = await query(
+        `SELECT DISTINCT e.id, e.name, e.employee_id as employee_number, e.salary, e.salary_type
+         FROM e_employees e
+         LEFT JOIN e_attendance a ON e.id = a.employee_id AND a.project_id = $2 AND a.date >= $3 AND a.date <= $4 AND a.status = 'Present' AND a.deleted_at IS NULL
+         LEFT JOIN e_expenses ex ON e.id = ex.employee_id AND ex.project_id = $2 AND ex.date >= $3 AND ex.date <= $4 AND ex.category = 'Salary Advance' AND ex.deleted_at IS NULL
+         WHERE e.account_id = $1 AND e.deleted_at IS NULL
+         AND (a.id IS NOT NULL OR ex.id IS NOT NULL)`,
+        [account_id, projectId, startDate, endDate]
+      );
+      
+      const breakdown = [];
+
+      for (const emp of employeesResult.rows) {
+        // Count working days
+        const attendanceResult = await query(
+          `SELECT COUNT(*) as working_days
+           FROM e_attendance
+           WHERE account_id = $1 AND employee_id = $2 AND project_id = $3
+           AND date >= $4 AND date <= $5 AND status = 'Present' AND deleted_at IS NULL`,
+          [account_id, emp.id, projectId, startDate, endDate]
+        );
+        
+        const workingDays = parseInt(attendanceResult.rows[0].working_days);
+        const salary = parseFloat(emp.salary);
+        let earned = 0;
+        if (emp.salary_type === 'Daily') {
+          earned = workingDays * salary;
+        } else if (emp.salary_type === 'Monthly') {
+          earned = (workingDays * salary) / 30;
+        }
+
+        // Get paid advances
+        const paidResult = await query(
+          `SELECT COALESCE(SUM(amount), 0) as total
+           FROM e_expenses
+           WHERE account_id = $1 AND employee_id = $2 AND project_id = $3
+           AND category = 'Salary Advance' AND date >= $4 AND date <= $5 AND deleted_at IS NULL`,
+          [account_id, emp.id, projectId, startDate, endDate]
+        );
+        
+        const paid = parseFloat(paidResult.rows[0].total);
+
+        breakdown.push({
+          employee_id: emp.id,
+          employee_name: emp.name,
+          employee_number: emp.employee_number,
+          working_days: workingDays,
+          earned_salary: earned,
+          paid_advances: paid,
+          pending: Math.max(0, earned - paid)
+        });
+      }
+
+      res.json(breakdown);
+    } catch (err) {
+      console.error("Error fetching project breakdown:", err);
+      res.status(500).json({ error: "Failed to fetch project breakdown" });
+    }
+  });
+
+  app.post("/api/expenses", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { project_id, category, amount, date, description } = req.body;
+    try {
+      const result = await query(
+        "INSERT INTO e_expenses (account_id, project_id, category, amount, date, description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+        [account_id, project_id === 0 ? null : project_id, category, amount, date || new Date().toISOString().split('T')[0], description]
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error("Error adding expense:", err);
+      res.status(500).json({ error: "Failed to add expense" });
+    }
+  });
+
+  app.delete("/api/expenses/:id", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    try {
+      await query("UPDATE e_expenses SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND account_id = $2", [req.params.id, account_id]);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete expense" });
+    }
+  });
+
+  // Salary Advance with Breakdown
+  app.post("/api/payroll/advances-with-breakdown", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    const { employee_id, amount, breakdown, date } = req.body; // breakdown: [{ project_id, amount }]
+    
+    try {
+      // Start transaction
+      await query("BEGIN");
+      
+      // 1. Record the advance
+      const advanceResult = await query(
+        "INSERT INTO e_payroll_advances (account_id, employee_id, amount, date) VALUES ($1, $2, $3, $4) RETURNING id",
+        [account_id, employee_id, amount, date || new Date().toISOString().split('T')[0]]
+      );
+      const advanceId = advanceResult.rows[0].id;
+      
+      // 2. Record the breakdown
+      if (breakdown && Array.isArray(breakdown)) {
+        for (const item of breakdown) {
+          await query(
+            "INSERT INTO e_salary_advance_breakdown (account_id, advance_id, project_id, amount) VALUES ($1, $2, $3, $4)",
+            [account_id, advanceId, item.project_id, item.amount]
+          );
+          
+          // 3. Also record as an expense for the project
+          await query(
+            "INSERT INTO e_expenses (account_id, project_id, category, amount, date, description) VALUES ($1, $2, $3, $4, $5, $6)",
+            [account_id, item.project_id, 'Salary Advance', item.amount, date || new Date().toISOString().split('T')[0], `Salary advance breakdown for employee ID: ${employee_id}`]
+          );
+        }
+      }
+      
+      await query("COMMIT");
+      res.json({ success: true, advance_id: advanceId });
+    } catch (err) {
+      await query("ROLLBACK");
+      console.error("Error recording advance with breakdown:", err);
+      res.status(500).json({ error: "Failed to record advance with breakdown" });
+    }
+  });
+
+  app.get("/api/payroll/advances/:id/breakdown", authenticate, async (req: any, res) => {
+    const { account_id } = req.user;
+    try {
+      const result = await query(`
+        SELECT b.*, p.name as project_name 
+        FROM e_salary_advance_breakdown b
+        JOIN e_projects p ON b.project_id = p.id
+        WHERE b.advance_id = $1 AND b.account_id = $2 AND b.deleted_at IS NULL
+      `, [req.params.id, account_id]);
+      res.json(result.rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch advance breakdown" });
     }
   });
 

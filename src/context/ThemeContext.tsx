@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark' | 'dim';
 
 interface ThemeContextType {
   theme: Theme;
@@ -12,22 +12,23 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const [theme, setTheme] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem('ems_theme');
-    if (savedTheme === 'dark' || savedTheme === 'light') return savedTheme;
+    if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'dim') return savedTheme as Theme;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   useEffect(() => {
     const root = window.document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
+    root.classList.remove('light', 'dark', 'dim');
+    root.classList.add(theme);
     localStorage.setItem('ems_theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+    setTheme((prev) => {
+      if (prev === 'light') return 'dim';
+      if (prev === 'dim') return 'dark';
+      return 'light';
+    });
   };
 
   return (

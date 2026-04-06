@@ -41,6 +41,14 @@ const modules = [
     color: 'bg-purple-50 text-purple-600'
   },
   { 
+    id: 'expenses', 
+    label: 'Project Expenses', 
+    description: 'Track project-wise salary and paid advances',
+    icon: TrendingUp, 
+    path: '/expenses',
+    color: 'bg-rose-50 text-rose-600'
+  },
+  { 
     id: 'leaves', 
     label: 'Leave Management', 
     description: 'Track leave requests and balances',

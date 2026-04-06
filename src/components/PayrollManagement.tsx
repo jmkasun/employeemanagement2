@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Filter, DollarSign, CreditCard, History, User, ChevronRight, X, ArrowUpRight, ArrowDownLeft, Wallet, Calendar, LayoutGrid, List, Briefcase, Download, FileText } from 'lucide-react';
+import { Search, Filter, DollarSign, CreditCard, History, User, ChevronRight, X, ArrowUpRight, ArrowDownLeft, Wallet, Calendar, LayoutGrid, List, Briefcase, Download, FileText, Plus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Employee, Role, Section, PayrollAdvance, PayrollLoan, Project } from '@/src/types';
 import { cn } from '@/src/lib/utils';
@@ -30,6 +30,10 @@ const PayrollManagement = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [employeeHistory, setEmployeeHistory] = useState<{ advances: PayrollAdvance[], loans: PayrollLoan[] }>({ advances: [], loans: [] });
+  const [selectedAdvanceBreakdown, setSelectedAdvanceBreakdown] = useState<any[] | null>(null);
+
+  // Advance Breakdown State
+  const [breakdowns, setBreakdowns] = useState<{ project_id: number, amount: string }[]>([]);
 
   const fetchPayrollSummary = () => {
     fetchWithAuth(`/api/payroll/summary?month=${selectedMonth}&year=${selectedYear}`)
@@ -102,9 +106,20 @@ const PayrollManagement = () => {
       const advData = await advRes.json();
       const loanData = await loanRes.json();
       setEmployeeHistory({ advances: advData, loans: loanData });
+      setSelectedAdvanceBreakdown(null);
       setShowHistoryModal(true);
     } catch (err) {
       console.error('Error fetching employee history:', err);
+    }
+  };
+
+  const fetchBreakdown = async (advanceId: number) => {
+    try {
+      const res = await fetchWithAuth(`/api/payroll/advances/${advanceId}/breakdown`);
+      const data = await res.json();
+      setSelectedAdvanceBreakdown(data);
+    } catch (err) {
+      console.error('Error fetching breakdown:', err);
     }
   };
 
@@ -120,20 +135,32 @@ const PayrollManagement = () => {
       return;
     }
 
+    const totalBreakdown = breakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0);
+    if (breakdowns.length > 0 && Math.abs(totalBreakdown - amount) > 0.01) {
+      alert(`Total breakdown (Rs. ${totalBreakdown}) must match the total advance amount (Rs. ${amount})`);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const res = await fetchWithAuth('/api/payroll/advances', {
+      const res = await fetchWithAuth('/api/payroll/advances-with-breakdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           employee_id: selectedEmployee.id,
-          amount
+          amount,
+          date: new Date().toISOString().split('T')[0],
+          breakdown: breakdowns.map(b => ({
+            project_id: b.project_id,
+            amount: parseFloat(b.amount)
+          }))
         })
       });
 
       if (res.ok) {
         setShowAdvanceModal(false);
         setAdvanceAmount('');
+        setBreakdowns([]);
         fetchPayrollSummary();
         fetchAdvances();
       }
@@ -142,6 +169,20 @@ const PayrollManagement = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const addBreakdown = () => {
+    setBreakdowns([...breakdowns, { project_id: 0, amount: '' }]);
+  };
+
+  const removeBreakdown = (index: number) => {
+    setBreakdowns(breakdowns.filter((_, i) => i !== index));
+  };
+
+  const updateBreakdown = (index: number, field: 'project_id' | 'amount', value: any) => {
+    const newBreakdowns = [...breakdowns];
+    newBreakdowns[index] = { ...newBreakdowns[index], [field]: value };
+    setBreakdowns(newBreakdowns);
   };
 
   const handleLoanSubmit = async (e: React.FormEvent) => {
@@ -678,7 +719,7 @@ const PayrollManagement = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Amount (Rs.)</label>
+                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Total Amount (Rs.)</label>
                   <input 
                     type="number" 
                     required
@@ -688,6 +729,63 @@ const PayrollManagement = () => {
                     className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 text-sm font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
                     placeholder="0.00"
                   />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Project Breakdown (Optional)</label>
+                    <button 
+                      type="button"
+                      onClick={addBreakdown}
+                      className="text-primary hover:bg-primary/5 p-1 rounded-lg transition-all"
+                      title="Add Project Allocation"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                    {breakdowns.map((b, index) => (
+                      <div key={index} className="flex gap-2 items-center">
+                        <select 
+                          required
+                          value={b.project_id}
+                          onChange={(e) => updateBreakdown(index, 'project_id', parseInt(e.target.value))}
+                          className="flex-1 bg-surface-container-low border-none rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                        >
+                          <option value="0">Select Project</option>
+                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        <input 
+                          type="number"
+                          required
+                          placeholder="Amount"
+                          value={b.amount}
+                          onChange={(e) => updateBreakdown(index, 'amount', e.target.value)}
+                          className="w-24 bg-surface-container-low border-none rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => removeBreakdown(index)}
+                          className="text-on-surface-variant hover:text-error p-1 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    {breakdowns.length > 0 && (
+                      <div className="flex justify-between px-2 pt-1 text-[10px] font-bold">
+                        <span className="text-on-surface-variant uppercase">Total Allocated:</span>
+                        <span className={cn(
+                          Math.abs(breakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0) - parseFloat(advanceAmount || '0')) < 0.01 
+                            ? "text-green-600" 
+                            : "text-error"
+                        )}>
+                          Rs. {breakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -805,13 +903,47 @@ const PayrollManagement = () => {
                       </thead>
                       <tbody className="divide-y divide-outline-variant/10">
                         {employeeHistory.advances.map(adv => (
-                          <tr key={adv.id}>
-                            <td className="px-4 py-2.5 text-on-surface">{new Date(adv.date).toLocaleDateString()}</td>
-                            <td className="px-4 py-2.5 text-right font-bold text-error">Rs. {adv.amount.toLocaleString()}</td>
-                            <td className="px-4 py-2.5">
-                              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[8px] font-bold rounded uppercase tracking-wider">{adv.status}</span>
-                            </td>
-                          </tr>
+                          <React.Fragment key={adv.id}>
+                            <tr className="group hover:bg-surface-container-high/50 transition-colors">
+                              <td className="px-4 py-2.5 text-on-surface">{new Date(adv.date).toLocaleDateString()}</td>
+                              <td className="px-4 py-2.5 text-right font-bold text-error">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => fetchBreakdown(adv.id)}
+                                    className="p-1 text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
+                                    title="View Breakdown"
+                                  >
+                                    <List size={12} />
+                                  </button>
+                                  Rs. {adv.amount.toLocaleString()}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[8px] font-bold rounded uppercase tracking-wider">{adv.status}</span>
+                              </td>
+                            </tr>
+                            {selectedAdvanceBreakdown && selectedAdvanceBreakdown.length > 0 && selectedAdvanceBreakdown[0].advance_id === adv.id && (
+                              <tr className="bg-surface-container-high/30 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <td colSpan={3} className="px-4 py-3">
+                                  <div className="space-y-2 border-l-2 border-primary/20 ml-2 pl-4">
+                                    <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Project Allocation</p>
+                                    {selectedAdvanceBreakdown.map((b, idx) => (
+                                      <div key={idx} className="flex justify-between text-[10px] font-medium">
+                                        <span className="text-on-surface-variant">{b.project_name}</span>
+                                        <span className="font-bold text-on-surface">Rs. {Number(b.amount).toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                    <button 
+                                      onClick={() => setSelectedAdvanceBreakdown(null)}
+                                      className="text-[9px] font-bold text-primary hover:underline pt-1"
+                                    >
+                                      Hide Breakdown
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                         {employeeHistory.advances.length === 0 && (
                           <tr>

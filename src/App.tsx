@@ -7,6 +7,7 @@ import EmployeeProfile from './components/EmployeeProfile';
 import AttendanceLogging from './components/AttendanceLogging';
 import LeaveManagement from './components/LeaveManagement';
 import PayrollManagement from './components/PayrollManagement';
+import ExpenseManagement from './components/ExpenseManagement';
 import Directory from './components/Directory';
 import Login from './components/Login';
 import Settings from './components/Settings';
@@ -56,6 +57,7 @@ export default function App() {
               <Route path="/attendance" element={<AttendanceLogging />} />
               <Route path="/leave" element={<LeaveManagement />} />
               <Route path="/payroll" element={<PayrollManagement />} />
+              <Route path="/expenses" element={<ExpenseManagement />} />
               <Route path="/settings" element={user.role === 'standard' ? <Navigate to="/" replace /> : <Settings />} />
               <Route path="/accounts" element={user.role === 'super_admin' ? <AccountManagement /> : <Navigate to="/" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />

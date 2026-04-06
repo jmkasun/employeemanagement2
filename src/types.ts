@@ -122,3 +122,22 @@ export interface PayrollLoan {
   name?: string;
   employee_number?: string; // For display
 }
+
+export interface Expense {
+  id: number;
+  account_id: number;
+  project_id?: number;
+  category: string;
+  amount: number;
+  date: string;
+  description: string;
+  project_name?: string; // For display
+}
+
+export interface SalaryAdvanceBreakdown {
+  id: number;
+  advance_id: number;
+  project_id: number;
+  amount: number;
+  project_name?: string; // For display
+}
