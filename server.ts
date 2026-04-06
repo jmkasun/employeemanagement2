@@ -714,7 +714,7 @@ const authenticate = (req: any, res: any, next: any) => {
 
   app.get("/api/attendance", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
-    const { date } = req.query;
+    const { date, employee_id } = req.query;
     try {
       let queryStr = `
         SELECT a.*, e.name, e.avatar_url, e.employee_id as employee_number, s.name as section, p.name as project 
@@ -727,8 +727,13 @@ const authenticate = (req: any, res: any, next: any) => {
       const params: any[] = [account_id];
 
       if (date) {
-        queryStr += " AND a.date = $2";
         params.push(date);
+        queryStr += ` AND a.date = $${params.length}`;
+      }
+
+      if (employee_id) {
+        params.push(employee_id);
+        queryStr += ` AND a.employee_id = $${params.length}`;
       }
 
       queryStr += " ORDER BY a.date DESC, a.check_in DESC";

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { UserPlus, Calendar, CheckCircle2, Clock, XCircle, ChevronRight, Briefcase, LogIn, LogOut, Users, Fingerprint, RefreshCw } from 'lucide-react';
+import { UserPlus, Calendar, CheckCircle2, Clock, XCircle, ChevronRight, Briefcase, LogIn, LogOut, Users, Fingerprint, RefreshCw, History, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Employee, Attendance, Project } from '@/src/types';
 import { cn, formatTime } from '@/src/lib/utils';
@@ -27,6 +27,9 @@ const AttendanceLogging = () => {
   const [fingerprintId, setFingerprintId] = useState('');
   const [fingerprintStatus, setFingerprintStatus] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [isFingerprintLoading, setIsFingerprintLoading] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [employeeHistory, setEmployeeHistory] = useState<Attendance[]>([]);
+  const [historyEmployeeName, setHistoryEmployeeName] = useState('');
 
   useEffect(() => {
     const handleFetch = (url: string, setter: (data: any) => void) => {
@@ -205,6 +208,20 @@ const AttendanceLogging = () => {
       setFingerprintStatus({ message: 'Connection error', type: 'error' });
     } finally {
       setIsFingerprintLoading(false);
+    }
+  };
+
+  const fetchEmployeeHistory = async (employeeId: number, employeeName: string) => {
+    try {
+      const res = await fetchWithAuth(`/api/attendance?employee_id=${employeeId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setEmployeeHistory(data);
+        setHistoryEmployeeName(employeeName);
+        setShowHistoryModal(true);
+      }
+    } catch (err) {
+      console.error('Error fetching employee history:', err);
     }
   };
 
@@ -530,16 +547,25 @@ const AttendanceLogging = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <button 
-                          onClick={() => {
-                            const emp = employees.find(e => e.id === log.employee_id);
-                            if (emp) handleEmployeeSelect(emp);
-                          }}
-                          className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                          title="Edit Record"
-                        >
-                          <RefreshCw size={14} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => {
+                              const emp = employees.find(e => e.id === log.employee_id);
+                              if (emp) handleEmployeeSelect(emp);
+                            }}
+                            className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Edit Record"
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                          <button 
+                            onClick={() => fetchEmployeeHistory(log.employee_id, log.name || '')}
+                            className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Attendance History"
+                          >
+                            <History size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -549,6 +575,108 @@ const AttendanceLogging = () => {
           </div>
         </div>
       </div>
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-surface-container-lowest rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+          >
+            <div className="p-6 border-b border-outline-variant flex items-center justify-between bg-surface-container-low">
+              <div className="flex items-center gap-3">
+                <History className="text-primary" size={24} />
+                <div>
+                  <h3 className="font-headline font-bold text-xl">Attendance History</h3>
+                  <p className="text-xs text-on-surface-variant font-medium">{historyEmployeeName}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowHistoryModal(false)}
+                className="p-2 hover:bg-surface-container-high rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-outline-variant">
+                    <th className="pb-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Date</th>
+                    <th className="pb-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Project</th>
+                    <th className="pb-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">In Time</th>
+                    <th className="pb-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Out Time</th>
+                    <th className="pb-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Allowance</th>
+                    <th className="pb-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant">
+                  {employeeHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-on-surface-variant text-sm">No history records found.</td>
+                    </tr>
+                  ) : (
+                    employeeHistory.map((log) => (
+                      <tr key={log.id} className="hover:bg-surface-container-low transition-colors">
+                        <td className="py-4 text-sm font-bold text-on-surface">
+                          {new Date(log.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="py-4 text-xs font-medium text-on-surface-variant">{log.project || 'N/A'}</td>
+                        <td className="py-4">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+                            <LogIn size={12} />
+                            {formatTime(log.check_in)}
+                          </span>
+                        </td>
+                        <td className="py-4">
+                          {log.check_out ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600">
+                              <LogOut size={12} />
+                              {formatTime(log.check_out)}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-outline uppercase tracking-tighter italic">Pending</span>
+                          )}
+                        </td>
+                        <td className="py-4">
+                          {log.allowance > 0 ? (
+                            <span className="text-xs font-bold text-primary">
+                              LKR {Number(log.allowance).toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-outline">-</span>
+                          )}
+                        </td>
+                        <td className="py-4">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest w-fit",
+                            log.status === 'Half-Day' ? "bg-amber-100 text-amber-700" : 
+                            log.status === 'Absent' ? "bg-error/10 text-error" :
+                            "bg-emerald-100 text-emerald-700"
+                          )}>
+                            {log.status || 'Present'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="p-4 bg-surface-container-low border-t border-outline-variant flex justify-end">
+              <button 
+                onClick={() => setShowHistoryModal(false)}
+                className="px-6 py-2 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-container transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

@@ -196,6 +196,10 @@ const PayrollManagement = () => {
     return baseSalary + allowance;
   };
 
+  const totalSalaries = employees.reduce((acc, emp) => acc + calculateActualSalary(emp), 0);
+  const totalAdvances = advances.reduce((acc, adv) => acc + Number(adv.amount), 0);
+  const totalLoans = loans.reduce((acc, loan) => acc + Number(loan.amount), 0);
+
   const filteredEmployees = employees.filter(e => {
     const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase()) || 
       (e.employee_number && e.employee_number.toLowerCase().includes(search.toLowerCase()));
@@ -238,6 +242,62 @@ const PayrollManagement = () => {
           </select>
         </div>
       </section>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-primary/5 p-6 rounded-3xl border border-primary/10"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-3 bg-primary/10 rounded-2xl text-primary">
+              <Wallet size={24} />
+            </div>
+            <span className="font-bold text-sm text-on-surface-variant uppercase tracking-wider">Total Salaries</span>
+          </div>
+          <div className="text-3xl font-extrabold text-on-surface">
+            Rs. {totalSalaries.toLocaleString()}
+          </div>
+          <p className="text-xs text-on-surface-variant mt-2 font-medium">For {new Date(0, selectedMonth - 1).toLocaleString('default', { month: 'long' })} {selectedYear}</p>
+        </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-error/5 p-6 rounded-3xl border border-error/10"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-3 bg-error/10 rounded-2xl text-error">
+              <ArrowUpRight size={24} />
+            </div>
+            <span className="font-bold text-sm text-on-surface-variant uppercase tracking-wider">Total Advances</span>
+          </div>
+          <div className="text-3xl font-extrabold text-on-surface">
+            Rs. {totalAdvances.toLocaleString()}
+          </div>
+          <p className="text-xs text-on-surface-variant mt-2 font-medium">Monthly total for selected period</p>
+        </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-secondary/5 p-6 rounded-3xl border border-secondary/10"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-3 bg-secondary/10 rounded-2xl text-secondary">
+              <DollarSign size={24} />
+            </div>
+            <span className="font-bold text-sm text-on-surface-variant uppercase tracking-wider">Total Loans</span>
+          </div>
+          <div className="text-3xl font-extrabold text-on-surface">
+            Rs. {totalLoans.toLocaleString()}
+          </div>
+          <p className="text-xs text-on-surface-variant mt-2 font-medium">Total outstanding/active loans</p>
+        </motion.div>
+      </div>
 
       <div className="flex gap-4 border-b border-outline-variant/10">
         <button 
