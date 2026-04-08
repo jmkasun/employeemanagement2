@@ -30,6 +30,7 @@ const Directory = () => {
     tax_residency: 'Domestic (Standard)',
     section_id: 0,
     salary_type: 'Daily',
+    unit_description: '',
     salary: 0,
     avatar_url: '',
     status: 'On-Duty'
@@ -203,6 +204,7 @@ const Directory = () => {
       tax_residency: emp.tax_residency || 'Domestic (Standard)',
       section_id: emp.section_id || 0,
       salary_type: emp.salary_type || 'Daily',
+      unit_description: emp.unit_description || '',
       salary: emp.salary || 0,
       avatar_url: emp.avatar_url || '',
       status: emp.status || 'On-Duty'
@@ -553,10 +555,26 @@ const Directory = () => {
                     >
                       <option value="Monthly">Monthly</option>
                       <option value="Daily">Daily</option>
+                      <option value="Per-unit">Per-unit</option>
                     </select>
                   </div>
+                  {newEmployee.salary_type === 'Per-unit' && (
+                    <div className="space-y-2">
+                      <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Unit Description</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={newEmployee.unit_description}
+                        onChange={(e) => setNewEmployee({ ...newEmployee, unit_description: e.target.value })}
+                        className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 font-body text-sm focus:ring-2 focus:ring-primary transition-all"
+                        placeholder="e.g. per 1000 bricks, per delivery"
+                      />
+                    </div>
+                  )}
                   <div className="space-y-2">
-                    <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">Salary Amount</label>
+                    <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">
+                      {newEmployee.salary_type === 'Per-unit' ? 'Rate per Unit' : 'Salary Amount'}
+                    </label>
                     <input 
                       type="number" 
                       value={newEmployee.salary}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Filter, DollarSign, CreditCard, History, User, ChevronRight, X, ArrowUpRight, ArrowDownLeft, Wallet, Calendar, LayoutGrid, List, Briefcase, Download, FileText, Plus, Trash2 } from 'lucide-react';
+import { Search, Filter, DollarSign, CreditCard, History, User, ChevronRight, X, ArrowUpRight, ArrowDownLeft, Wallet, Calendar, LayoutGrid, List, Briefcase, Download, FileText, Plus, Trash2, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Employee, Role, Section, PayrollAdvance, PayrollLoan, Project } from '@/src/types';
 import { cn } from '@/src/lib/utils';
@@ -31,9 +31,12 @@ const PayrollManagement = () => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [employeeHistory, setEmployeeHistory] = useState<{ advances: PayrollAdvance[], loans: PayrollLoan[] }>({ advances: [], loans: [] });
   const [selectedAdvanceBreakdown, setSelectedAdvanceBreakdown] = useState<any[] | null>(null);
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const [editingAdvance, setEditingAdvance] = useState<PayrollAdvance | null>(null);
+  const [editingLoan, setEditingLoan] = useState<PayrollLoan | null>(null);
 
   // Advance Breakdown State
-  const [breakdowns, setBreakdowns] = useState<{ project_id: number, amount: string }[]>([]);
+  const [breakdowns, setBreakdowns] = useState<{ project_id: number, project_name?: string, payable?: number, amount: string }[]>([]);
 
   const fetchPayrollSummary = () => {
     fetchWithAuth(`/api/payroll/summary?month=${selectedMonth}&year=${selectedYear}`)
@@ -96,6 +99,49 @@ const PayrollManagement = () => {
     fetchProjects();
   }, []);
 
+  useEffect(() => {
+    if (showAdvanceModal && selectedEmployee) {
+      fetchWithAuth(`/api/payroll/suggested-breakdown/${selectedEmployee.id}?month=${selectedMonth}&year=${selectedYear}`)
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data) && data.length > 0) {
+            setBreakdowns(data);
+            const total = data.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+            setIsAdjusting(true);
+            setAdvanceAmount(total.toString());
+            setTimeout(() => setIsAdjusting(false), 0);
+          } else {
+            setBreakdowns([]);
+            setAdvanceAmount('');
+          }
+        })
+        .catch(err => console.error('Error fetching suggested breakdown:', err));
+    }
+  }, [showAdvanceModal, selectedEmployee, selectedMonth, selectedYear]);
+
+  useEffect(() => {
+    if (isAdjusting || breakdowns.length === 0 || !advanceAmount) return;
+    
+    const totalAmount = parseFloat(advanceAmount);
+    if (isNaN(totalAmount) || totalAmount <= 0) return;
+
+    let remaining = totalAmount;
+    const newBreakdowns = breakdowns.map(b => {
+      const payable = b.payable || 0;
+      const take = Math.min(remaining, payable);
+      remaining -= take;
+      return { ...b, amount: take.toFixed(2) };
+    });
+
+    // If there's still remaining amount, add it to the last project
+    if (remaining > 0 && newBreakdowns.length > 0) {
+      const lastIdx = newBreakdowns.length - 1;
+      newBreakdowns[lastIdx].amount = (parseFloat(newBreakdowns[lastIdx].amount) + remaining).toFixed(2);
+    }
+
+    setBreakdowns(newBreakdowns);
+  }, [advanceAmount]);
+
   const fetchEmployeeHistory = async (empId: number) => {
     if (!empId) return;
     try {
@@ -128,10 +174,10 @@ const PayrollManagement = () => {
     if (!selectedEmployee || !advanceAmount) return;
 
     const amount = parseFloat(advanceAmount);
-    const payableLimit = selectedEmployee.salary - selectedEmployee.total_advances - selectedEmployee.total_loan_installments;
+    const netPayable = calculateActualSalary(selectedEmployee) - Number(selectedEmployee.total_advances) - Number(selectedEmployee.total_loan_installments);
 
-    if (amount > payableLimit) {
-      alert(`Advance amount exceeds payable limit of ${payableLimit.toLocaleString()}`);
+    if (amount > netPayable) {
+      alert(`Advance amount exceeds net payable limit of Rs. ${netPayable.toLocaleString()}`);
       return;
     }
 
@@ -143,13 +189,16 @@ const PayrollManagement = () => {
 
     setIsSubmitting(true);
     try {
-      const res = await fetchWithAuth('/api/payroll/advances-with-breakdown', {
-        method: 'POST',
+      const url = editingAdvance ? `/api/payroll/advances/${editingAdvance.id}` : '/api/payroll/advances-with-breakdown';
+      const method = editingAdvance ? 'PUT' : 'POST';
+      
+      const res = await fetchWithAuth(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           employee_id: selectedEmployee.id,
           amount,
-          date: new Date().toISOString().split('T')[0],
+          date: editingAdvance ? editingAdvance.date : new Date().toISOString().split('T')[0],
           breakdown: breakdowns.map(b => ({
             project_id: b.project_id,
             amount: parseFloat(b.amount)
@@ -159,6 +208,7 @@ const PayrollManagement = () => {
 
       if (res.ok) {
         setShowAdvanceModal(false);
+        setEditingAdvance(null);
         setAdvanceAmount('');
         setBreakdowns([]);
         fetchPayrollSummary();
@@ -169,6 +219,43 @@ const PayrollManagement = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleDeleteAdvance = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this advance record?')) return;
+    try {
+      const res = await fetchWithAuth(`/api/payroll/advances/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchAdvances();
+        fetchPayrollSummary();
+      }
+    } catch (err) {
+      console.error('Error deleting advance:', err);
+    }
+  };
+
+  const handleEditAdvance = async (adv: PayrollAdvance) => {
+    const emp = employees.find(e => e.id === adv.employee_id);
+    if (!emp) return;
+    
+    setSelectedEmployee(emp);
+    setEditingAdvance(adv);
+    setAdvanceAmount(adv.amount.toString());
+    
+    // Fetch breakdown
+    try {
+      const res = await fetchWithAuth(`/api/payroll/advances/${adv.id}/breakdown`);
+      const data = await res.json();
+      setBreakdowns(data.map((b: any) => ({
+        project_id: b.project_id,
+        project_name: b.project_name,
+        amount: b.amount.toString()
+      })));
+    } catch (err) {
+      console.error('Error fetching breakdown for edit:', err);
+    }
+    
+    setShowAdvanceModal(true);
   };
 
   const addBreakdown = () => {
@@ -182,6 +269,19 @@ const PayrollManagement = () => {
   const updateBreakdown = (index: number, field: 'project_id' | 'amount', value: any) => {
     const newBreakdowns = [...breakdowns];
     newBreakdowns[index] = { ...newBreakdowns[index], [field]: value };
+    
+    if (field === 'amount') {
+      const newTotal = newBreakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0);
+      setIsAdjusting(true);
+      setAdvanceAmount(newTotal.toString());
+      setTimeout(() => setIsAdjusting(false), 0);
+    } else if (field === 'project_id') {
+      const proj = projects.find(p => p.id === value);
+      if (proj) {
+        newBreakdowns[index].project_name = proj.name;
+      }
+    }
+    
     setBreakdowns(newBreakdowns);
   };
 
@@ -193,8 +293,11 @@ const PayrollManagement = () => {
     
     setIsSubmitting(true);
     try {
-      const res = await fetchWithAuth('/api/payroll/loans', {
-        method: 'POST',
+      const url = editingLoan ? `/api/payroll/loans/${editingLoan.id}` : '/api/payroll/loans';
+      const method = editingLoan ? 'PUT' : 'POST';
+      
+      const res = await fetchWithAuth(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           employee_id: selectedEmployee.id,
@@ -204,6 +307,7 @@ const PayrollManagement = () => {
 
       if (res.ok) {
         setShowLoanModal(false);
+        setEditingLoan(null);
         setLoanAmount('');
         fetchPayrollSummary();
         fetchLoans();
@@ -215,14 +319,44 @@ const PayrollManagement = () => {
     }
   };
 
+  const handleDeleteLoan = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this loan record?')) return;
+    try {
+      const res = await fetchWithAuth(`/api/payroll/loans/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchLoans();
+        fetchPayrollSummary();
+      }
+    } catch (err) {
+      console.error('Error deleting loan:', err);
+    }
+  };
+
+  const handleEditLoan = (loan: PayrollLoan) => {
+    const emp = employees.find(e => e.id === loan.employee_id);
+    if (!emp) return;
+    
+    setSelectedEmployee(emp);
+    setEditingLoan(loan);
+    setLoanAmount(loan.amount.toString());
+    setShowLoanModal(true);
+  };
+
   const calculateActualSalary = (emp: any) => {
+    if (emp.total_earned !== undefined) {
+      return Number(emp.total_earned) || 0;
+    }
     const baseSalary = Number(emp.salary) || 0;
     const presentDays = Number(emp.present_days) || 0;
     const halfDays = Number(emp.half_days) || 0;
+    const totalUnits = Number(emp.total_units) || 0;
     const allowance = Number(emp.total_allowance) || 0;
 
     if (emp.salary_type === 'Daily') {
       return (presentDays + halfDays * 0.5) * baseSalary + allowance;
+    }
+    if (emp.salary_type === 'Per-unit') {
+      return totalUnits * baseSalary + allowance;
     }
     return baseSalary + allowance;
   };
@@ -461,11 +595,14 @@ const PayrollManagement = () => {
                   <div className="space-y-3 mb-6">
                     <div className="flex justify-between text-sm">
                       <span className="text-on-surface-variant">
-                        {emp.salary_type === 'Daily' ? `Attendance (${Number(emp.present_days) + Number(emp.half_days) * 0.5} Days)` : 'Base Salary'}
+                        {emp.salary_type === 'Daily' ? `Attendance (${Number(emp.present_days) + Number(emp.half_days) * 0.5} Days)` : 
+                         emp.salary_type === 'Per-unit' ? `Units (${Number(emp.total_units)})` : 'Base Salary'}
                       </span>
                       <span className="font-bold text-on-surface">
                         Rs. {emp.salary_type === 'Daily' 
                           ? ((Number(emp.present_days) + Number(emp.half_days) * 0.5) * Number(emp.salary)).toLocaleString()
+                          : emp.salary_type === 'per unit'
+                          ? (Number(emp.total_units) * Number(emp.salary)).toLocaleString()
                           : Number(emp.salary).toLocaleString()}
                       </span>
                     </div>
@@ -573,6 +710,8 @@ const PayrollManagement = () => {
                         <div className="text-[10px] text-on-surface-variant font-medium uppercase">
                           {emp.salary_type === 'Daily' 
                             ? `${Number(emp.present_days) + Number(emp.half_days) * 0.5} Days @ Rs. ${emp.salary.toLocaleString()}`
+                            : emp.salary_type === 'Per-unit'
+                            ? `${Number(emp.total_units)} Units @ Rs. ${emp.salary.toLocaleString()}`
                             : `${emp.salary_type} Salary`}
                           {Number(emp.total_allowance) > 0 && ` + Rs. ${Number(emp.total_allowance).toLocaleString()} Allow.`}
                         </div>
@@ -636,6 +775,7 @@ const PayrollManagement = () => {
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Date</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Amount</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Status</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/10">
@@ -649,6 +789,17 @@ const PayrollManagement = () => {
                   <td className="px-6 py-4 font-bold text-error">Rs. {adv.amount.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md uppercase tracking-wider">{adv.status}</span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button 
+                        onClick={() => handleEditAdvance(adv)}
+                        className="p-2 bg-primary/5 text-primary rounded-lg hover:bg-primary hover:text-on-primary transition-all"
+                        title="Edit Advance"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -670,6 +821,7 @@ const PayrollManagement = () => {
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Employee</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Amount</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Status</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/10">
@@ -682,6 +834,17 @@ const PayrollManagement = () => {
                   <td className="px-6 py-4 font-bold text-error">Rs. {loan.amount.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md uppercase tracking-wider">{loan.status}</span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button 
+                        onClick={() => handleEditLoan(loan)}
+                        className="p-2 bg-primary/5 text-primary rounded-lg hover:bg-primary hover:text-on-primary transition-all"
+                        title="Edit Loan"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -705,7 +868,9 @@ const PayrollManagement = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="relative w-full max-w-md bg-surface-container-lowest rounded-3xl shadow-2xl border border-outline-variant/10 p-6"
             >
-              <h3 className="font-headline font-bold text-xl text-on-surface mb-5">Salary Advance</h3>
+              <h3 className="font-headline font-bold text-xl text-on-surface mb-5">
+                {editingAdvance ? 'Edit Salary Advance' : 'Salary Advance'}
+              </h3>
               
               <form onSubmit={handleAdvanceSubmit} className="space-y-4">
                 <div className="flex items-center gap-3 p-3 bg-surface-container-low rounded-2xl border border-outline-variant/5">
@@ -746,24 +911,36 @@ const PayrollManagement = () => {
                   
                   <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
                     {breakdowns.map((b, index) => (
-                      <div key={index} className="flex gap-2 items-center">
-                        <select 
-                          required
-                          value={b.project_id}
-                          onChange={(e) => updateBreakdown(index, 'project_id', parseInt(e.target.value))}
-                          className="flex-1 bg-surface-container-low border-none rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
-                        >
-                          <option value="0">Select Project</option>
-                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                        <input 
-                          type="number"
-                          required
-                          placeholder="Amount"
-                          value={b.amount}
-                          onChange={(e) => updateBreakdown(index, 'amount', e.target.value)}
-                          className="w-24 bg-surface-container-low border-none rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
-                        />
+                      <div key={index} className="flex gap-2 items-center bg-surface-container-low p-2 rounded-xl border border-outline-variant/5">
+                        <div className="flex-1 min-w-0">
+                          {b.project_id === 0 ? (
+                            <select 
+                              required
+                              value={b.project_id}
+                              onChange={(e) => updateBreakdown(index, 'project_id', parseInt(e.target.value))}
+                              className="w-full bg-surface-container-lowest border-none rounded-lg py-1 px-2 text-[10px] font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                            >
+                              <option value="0">Select Project</option>
+                              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          ) : (
+                            <>
+                              <div className="text-[10px] font-bold text-on-surface truncate">{b.project_name || 'Unknown Project'}</div>
+                              <div className="text-[9px] text-on-surface-variant font-medium">Payable: Rs. {Number(b.payable || 0).toLocaleString()}</div>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-on-surface-variant">Rs.</span>
+                          <input 
+                            type="number"
+                            required
+                            placeholder="Amount"
+                            value={b.amount}
+                            onChange={(e) => updateBreakdown(index, 'amount', e.target.value)}
+                            className="w-24 bg-surface-container-lowest border-none rounded-lg py-1.5 px-2 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                          />
+                        </div>
                         <button 
                           type="button"
                           onClick={() => removeBreakdown(index)}
@@ -791,7 +968,12 @@ const PayrollManagement = () => {
                 <div className="flex gap-3 pt-2">
                   <button 
                     type="button"
-                    onClick={() => setShowAdvanceModal(false)}
+                    onClick={() => {
+                      setShowAdvanceModal(false);
+                      setEditingAdvance(null);
+                      setAdvanceAmount('');
+                      setBreakdowns([]);
+                    }}
                     className="flex-1 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm transition-all"
                   >
                     Cancel
@@ -820,7 +1002,9 @@ const PayrollManagement = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="relative w-full max-w-md bg-surface-container-lowest rounded-3xl shadow-2xl border border-outline-variant/10 p-6"
             >
-              <h3 className="font-headline font-bold text-xl text-on-surface mb-5">Apply for Loan</h3>
+              <h3 className="font-headline font-bold text-xl text-on-surface mb-5">
+                {editingLoan ? 'Edit Loan' : 'Apply for Loan'}
+              </h3>
               
               <form onSubmit={handleLoanSubmit} className="space-y-4">
                 <div className="flex items-center gap-3 p-3 bg-surface-container-low rounded-2xl border border-outline-variant/5">
@@ -849,7 +1033,11 @@ const PayrollManagement = () => {
                 <div className="flex gap-3 pt-2">
                   <button 
                     type="button"
-                    onClick={() => setShowLoanModal(false)}
+                    onClick={() => {
+                      setShowLoanModal(false);
+                      setEditingLoan(null);
+                      setLoanAmount('');
+                    }}
                     className="flex-1 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm transition-all"
                   >
                     Cancel
@@ -859,7 +1047,7 @@ const PayrollManagement = () => {
                     disabled={isSubmitting || !loanAmount}
                     className="flex-1 bg-secondary text-on-secondary py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-secondary/20 hover:bg-secondary/90 transition-all disabled:opacity-50"
                   >
-                    {isSubmitting ? 'Processing...' : 'Apply'}
+                    {isSubmitting ? 'Processing...' : (editingLoan ? 'Update' : 'Apply')}
                   </button>
                 </div>
               </form>
@@ -899,6 +1087,7 @@ const PayrollManagement = () => {
                           <th className="px-4 py-2.5 font-bold text-on-surface-variant uppercase text-[9px]">Date</th>
                           <th className="px-4 py-2.5 font-bold text-right text-on-surface-variant uppercase text-[9px]">Amount</th>
                           <th className="px-4 py-2.5 font-bold text-on-surface-variant uppercase text-[9px]">Status</th>
+                          <th className="px-4 py-2.5 font-bold text-right text-on-surface-variant uppercase text-[9px]">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-outline-variant/10">
@@ -920,6 +1109,17 @@ const PayrollManagement = () => {
                               </td>
                               <td className="px-4 py-2.5">
                                 <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[8px] font-bold rounded uppercase tracking-wider">{adv.status}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <div className="flex justify-end gap-1">
+                                  <button 
+                                    onClick={() => handleEditAdvance(adv)}
+                                    className="p-1 text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
+                                    title="Edit"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                             {selectedAdvanceBreakdown && selectedAdvanceBreakdown.length > 0 && selectedAdvanceBreakdown[0].advance_id === adv.id && (
@@ -967,15 +1167,27 @@ const PayrollManagement = () => {
                           <th className="px-4 py-2.5 font-bold text-on-surface-variant uppercase text-[9px]">Date</th>
                           <th className="px-4 py-2.5 font-bold text-right text-on-surface-variant uppercase text-[9px]">Amount</th>
                           <th className="px-4 py-2.5 font-bold text-on-surface-variant uppercase text-[9px]">Status</th>
+                          <th className="px-4 py-2.5 font-bold text-right text-on-surface-variant uppercase text-[9px]">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-outline-variant/10">
                         {employeeHistory.loans.map(loan => (
-                          <tr key={loan.id}>
+                          <tr key={loan.id} className="group hover:bg-surface-container-high/50 transition-colors">
                             <td className="px-4 py-2.5 text-on-surface">{new Date(loan.date).toLocaleDateString()}</td>
                             <td className="px-4 py-2.5 text-right font-bold text-error">Rs. {loan.amount.toLocaleString()}</td>
                             <td className="px-4 py-2.5">
                               <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[8px] font-bold rounded uppercase tracking-wider">{loan.status}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button 
+                                  onClick={() => handleEditLoan(loan)}
+                                  className="p-1 text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
+                                  title="Edit"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}

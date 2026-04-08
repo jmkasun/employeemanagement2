@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Grid, Users, Timer, CalendarOff, Settings, Bell, LogOut, Building2, CreditCard, Sun, Moon, Cloud, ReceiptText } from 'lucide-react';
+import { LayoutDashboard, Grid, Users, Timer, CalendarOff, Settings, Bell, LogOut, Building2, CreditCard, Sun, Moon, Cloud, ReceiptText, CloudSun, CloudMoon } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { User } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -96,7 +96,8 @@ const TopBar = ({ onLogout }: { onLogout?: () => void }) => {
               title={`Current theme: ${theme}. Click to switch.`}
             >
               {theme === 'light' && <Sun size={20} />}
-              {theme === 'dim' && <Cloud size={20} />}
+              {theme === 'soft' && <CloudSun size={20} />}
+              {theme === 'dim' && <CloudMoon size={20} />}
               {theme === 'dark' && <Moon size={20} />}
             </button>
             <button className="text-on-surface-variant hover:bg-surface-container-high p-2 rounded-full transition-colors">

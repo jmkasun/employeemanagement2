@@ -42,6 +42,7 @@ export interface Employee {
   nic: string;
   tax_residency: string;
   salary_type: string;
+  unit_description?: string;
   salary: number;
   avatar_url: string;
   role?: string; // For display
@@ -60,6 +61,10 @@ export interface Attendance {
   section_id: number;
   project_id: number;
   allowance: number;
+  salary_per_unit?: number;
+  current_salary?: number;
+  units?: number;
+  salary_type?: string;
   name?: string;
   avatar_url?: string;
   section?: string; // For display
@@ -127,6 +132,7 @@ export interface Expense {
   id: number;
   account_id: number;
   project_id?: number;
+  employee_id?: number;
   category: string;
   amount: number;
   date: string;
@@ -140,4 +146,23 @@ export interface SalaryAdvanceBreakdown {
   project_id: number;
   amount: number;
   project_name?: string; // For display
+}
+
+export interface ProjectAttendanceSummary {
+  id: number;
+  name: string;
+  full_day: number;
+  half_day: number;
+  absent: number;
+  total: number;
+}
+
+export interface ProjectEmployeeAttendance {
+  id: number;
+  name: string;
+  avatar_url: string;
+  employee_number: string;
+  status: string;
+  check_in: string;
+  check_out: string;
 }

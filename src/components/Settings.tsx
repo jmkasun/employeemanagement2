@@ -403,7 +403,7 @@ const Settings = () => {
                             type="text"
                             value={editingRole.name}
                             onChange={(e) => setEditingRole({ ...editingRole, name: e.target.value })}
-                            className="flex-1 bg-white border border-primary rounded-lg px-2 py-1 text-sm focus:outline-none"
+                            className="flex-1 bg-surface-container-lowest border border-primary rounded-lg px-2 py-1 text-sm text-on-surface focus:outline-none"
                             autoFocus
                           />
                           <button type="submit" className="text-primary font-bold text-xs">Save</button>
@@ -487,7 +487,7 @@ const Settings = () => {
                             type="text"
                             value={editingSection.name}
                             onChange={(e) => setEditingSection({ ...editingSection, name: e.target.value })}
-                            className="flex-1 bg-white border border-primary rounded-lg px-2 py-1 text-sm focus:outline-none"
+                            className="flex-1 bg-surface-container-lowest border border-primary rounded-lg px-2 py-1 text-sm text-on-surface focus:outline-none"
                             autoFocus
                           />
                           <button type="submit" className="text-primary font-bold text-xs">Save</button>
@@ -571,7 +571,7 @@ const Settings = () => {
                             type="text"
                             value={editingProject.name}
                             onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
-                            className="flex-1 bg-white border border-primary rounded-lg px-2 py-1 text-sm focus:outline-none"
+                            className="flex-1 bg-surface-container-lowest border border-primary rounded-lg px-2 py-1 text-sm text-on-surface focus:outline-none"
                             autoFocus
                           />
                           <button type="submit" className="text-primary font-bold text-xs">Save</button>

@@ -26,8 +26,29 @@
 
 @variant dark (&:where(.dark, .dark *));
 @variant dim (&:where(.dim, .dim *));
+@variant soft (&:where(.soft, .soft *));
 
 @layer base {
+  .soft {
+    --color-surface: #cbd5e1;
+    --color-on-surface: #0f172a;
+    --color-on-surface-variant: #334155;
+    --color-primary: #1d4ed8;
+    --color-primary-container: #bfdbfe;
+    --color-on-primary: #ffffff;
+    --color-on-primary-container: #1e3a8a;
+    --color-surface-container: #94a3b8;
+    --color-surface-container-low: #cbd5e1;
+    --color-surface-container-lowest: #e2e8f0;
+    --color-surface-container-high: #64748b;
+    --color-surface-container-highest: #475569;
+    --color-outline: #334155;
+    --color-outline-variant: #64748b;
+    --color-error: #b91c1c;
+    --color-error-container: #fee2e2;
+    --color-on-error-container: #7f1d1d;
+  }
+
   .dark {
     --color-surface: #111416;
     --color-on-surface: #e2e2e6;
@@ -52,10 +73,10 @@
     --color-surface: #1c2331;
     --color-on-surface: #e0e6ed;
     --color-on-surface-variant: #94a3b8;
-    --color-primary: #60a5fa;
-    --color-primary-container: #1e40af;
+    --color-primary: #38bdf8;
+    --color-primary-container: #0369a1;
     --color-on-primary: #ffffff;
-    --color-on-primary-container: #dbeafe;
+    --color-on-primary-container: #e0f2fe;
     --color-surface-container: #242f41;
     --color-surface-container-low: #1e293b;
     --color-surface-container-lowest: #1a2230;

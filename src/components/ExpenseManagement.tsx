@@ -53,7 +53,7 @@ const ExpenseManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [viewMode, setViewMode] = useState<'table' | 'charts'>('charts');
+  const [viewMode, setViewMode] = useState<'table' | 'charts'>('table');
   const [selectedProject, setSelectedProject] = useState<ProjectExpense | null>(null);
   const [breakdownData, setBreakdownData] = useState<EmployeeBreakdown[]>([]);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);

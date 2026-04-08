@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ChevronRight, Edit, Edit2, Edit3, Trash2, Phone, MessageSquare, BadgeCheck, Building2, Calendar, User, DollarSign, Plus, History } from 'lucide-react';
+import { ChevronRight, Edit, Edit2, Edit3, Trash2, Phone, MessageSquare, BadgeCheck, Building2, Calendar, User, DollarSign, Plus, History, List, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Employee, Attendance } from '@/src/types';
 import { cn, formatTime, formatDate } from '@/src/lib/utils';
@@ -23,11 +23,16 @@ const EmployeeProfile = () => {
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [showCoreDetails, setShowCoreDetails] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [breakdowns, setBreakdowns] = useState<{ project_id: number, project_name?: string, payable?: number, amount: string }[]>([]);
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [isAdjusting, setIsAdjusting] = useState(false);
   const [newLog, setNewLog] = useState({
     date: new Date().toISOString().split('T')[0],
     check_in: '08:00',
     check_out: '17:00',
-    status: 'Present',
+    status: 'Full-Day',
     allowance: 0
   });
   const [newAdvance, setNewAdvance] = useState({ amount: 0 });
@@ -55,14 +60,60 @@ const EmployeeProfile = () => {
       });
       handleFetch(`/api/payroll/advances?employee_id=${id}`, setAdvances);
       handleFetch(`/api/payroll/loans?employee_id=${id}`, setLoans);
+      handleFetch('/api/projects', setProjects);
     }
   }, [id, selectedMonth, selectedYear]);
+
+  useEffect(() => {
+    if (showAdvanceModal && employee) {
+      fetchWithAuth(`/api/payroll/suggested-breakdown/${employee.id}?month=${selectedMonth}&year=${selectedYear}`)
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data) && data.length > 0) {
+            setBreakdowns(data);
+            const total = data.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+            setIsAdjusting(true);
+            setAdvanceAmount(total.toString());
+            setTimeout(() => setIsAdjusting(false), 0);
+          } else {
+            setBreakdowns([]);
+            setAdvanceAmount('');
+          }
+        })
+        .catch(err => console.error('Error fetching suggested breakdown:', err));
+    }
+  }, [showAdvanceModal, employee, selectedMonth, selectedYear]);
+
+  useEffect(() => {
+    if (isAdjusting || breakdowns.length === 0 || !advanceAmount) return;
+    
+    const totalAmount = parseFloat(advanceAmount);
+    if (isNaN(totalAmount) || totalAmount <= 0) return;
+
+    let remaining = totalAmount;
+    const newBreakdowns = breakdowns.map(b => {
+      const payable = b.payable || 0;
+      const take = Math.min(remaining, payable);
+      remaining -= take;
+      return { ...b, amount: take.toFixed(2) };
+    });
+
+    // If there's still remaining amount, add it to the last project
+    if (remaining > 0 && newBreakdowns.length > 0) {
+      const lastIdx = newBreakdowns.length - 1;
+      newBreakdowns[lastIdx].amount = (parseFloat(newBreakdowns[lastIdx].amount) + remaining).toFixed(2);
+    }
+
+    setBreakdowns(newBreakdowns);
+  }, [advanceAmount]);
 
   const calculateActualSalary = (emp: any) => {
     if (!emp) return 0;
     const baseSalary = Number(emp.salary) || 0;
     if (emp.salary_type === 'Monthly') {
       return baseSalary + Number(emp.total_allowance || 0);
+    } else if (emp.salary_type === 'Per-unit') {
+      return (Number(emp.total_units || 0) * baseSalary) + Number(emp.total_allowance || 0);
     } else {
       const presentPay = Number(emp.present_days || 0) * baseSalary;
       const halfDayPay = Number(emp.half_days || 0) * (baseSalary / 2);
@@ -85,19 +136,78 @@ const EmployeeProfile = () => {
     } catch (err) { console.error(err); }
   };
 
-  const handleAddAdvance = async () => {
+  const handleAddAdvance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!employee || !advanceAmount) return;
+
+    const amount = parseFloat(advanceAmount);
+    const netPayable = calculateActualSalary(payrollSummary) - Number(payrollSummary?.total_advances || 0) - Number(payrollSummary?.total_loan_installments || 0);
+
+    if (amount > netPayable) {
+      alert(`Advance amount exceeds net payable limit of Rs. ${netPayable.toLocaleString()}`);
+      return;
+    }
+
+    const totalBreakdown = breakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0);
+    if (breakdowns.length > 0 && Math.abs(totalBreakdown - amount) > 0.01) {
+      alert(`Total breakdown (Rs. ${totalBreakdown}) must match the total advance amount (Rs. ${amount})`);
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      const res = await fetchWithAuth(`/api/payroll/advances`, {
+      const res = await fetchWithAuth('/api/payroll/advances-with-breakdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: Number(id), amount: newAdvance.amount })
+        body: JSON.stringify({
+          employee_id: Number(id),
+          amount,
+          date: new Date().toISOString().split('T')[0],
+          breakdown: breakdowns.map(b => ({
+            project_id: b.project_id,
+            amount: parseFloat(b.amount)
+          }))
+        })
       });
       if (res.ok) {
         const added = await res.json();
         setAdvances(prev => [added, ...prev]);
         setShowAdvanceModal(false);
+        setAdvanceAmount('');
+        setBreakdowns([]);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const addBreakdown = () => {
+    setBreakdowns([...breakdowns, { project_id: 0, amount: '' }]);
+  };
+
+  const removeBreakdown = (index: number) => {
+    setBreakdowns(breakdowns.filter((_, i) => i !== index));
+  };
+
+  const updateBreakdown = (index: number, field: 'project_id' | 'amount', value: any) => {
+    const newBreakdowns = [...breakdowns];
+    newBreakdowns[index] = { ...newBreakdowns[index], [field]: value };
+    
+    if (field === 'amount') {
+      const newTotal = newBreakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0);
+      setIsAdjusting(true);
+      setAdvanceAmount(newTotal.toString());
+      setTimeout(() => setIsAdjusting(false), 0);
+    } else if (field === 'project_id') {
+      const proj = projects.find(p => p.id === value);
+      if (proj) {
+        newBreakdowns[index].project_name = proj.name;
+      }
+    }
+    
+    setBreakdowns(newBreakdowns);
   };
 
   const handleAddLoan = async () => {
@@ -343,23 +453,42 @@ const EmployeeProfile = () => {
         {historyTab === 'summary' ? (
           <div className="space-y-5">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="bg-emerald-100/10 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-500/20"><p className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase mb-0.5">Present</p><p className="text-xl font-bold text-on-surface">{payrollSummary?.present_days || 0}</p></div>
-              <div className="bg-amber-100/10 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-500/20"><p className="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase mb-0.5">Half-Day</p><p className="text-xl font-bold text-on-surface">{payrollSummary?.half_days || 0}</p></div>
-              <div className="bg-primary/5 dark:bg-primary/10 p-4 rounded-2xl border border-primary/20"><p className="text-[9px] font-bold text-primary uppercase mb-0.5">Allowances</p><p className="text-xl font-bold text-on-surface">Rs. {Number(payrollSummary?.total_allowance || 0).toLocaleString()}</p></div>
-              <div className="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10"><p className="text-[9px] font-bold text-on-surface-variant uppercase mb-0.5">Total Days</p><p className="text-xl font-bold text-on-surface">{(payrollSummary?.present_days || 0) + (payrollSummary?.half_days || 0)}</p></div>
+              <div className="bg-emerald-100/10 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-500/20">
+                <p className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase mb-0.5">Full-Day</p>
+                <p className="text-xl font-bold text-on-surface">{payrollSummary?.present_days || 0}</p>
+              </div>
+              <div className="bg-amber-100/10 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-500/20">
+                <p className="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase mb-0.5">Half-Day</p>
+                <p className="text-xl font-bold text-on-surface">{payrollSummary?.half_days || 0}</p>
+              </div>
+              <div className="bg-primary/5 dark:bg-primary/10 p-4 rounded-2xl border border-primary/20">
+                <p className="text-[9px] font-bold text-primary uppercase mb-0.5">
+                  {employee.salary_type === 'Per-unit' ? 'Total Units' : 'Allowances'}
+                </p>
+                <p className="text-xl font-bold text-on-surface">
+                  {employee.salary_type === 'Per-unit' 
+                    ? (payrollSummary?.total_units || 0).toLocaleString()
+                    : `Rs. ${Number(payrollSummary?.total_allowance || 0).toLocaleString()}`}
+                </p>
+              </div>
+              <div className="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase mb-0.5">Total Days</p>
+                <p className="text-xl font-bold text-on-surface">{(payrollSummary?.present_days || 0) + (payrollSummary?.half_days || 0)}</p>
+              </div>
             </div>
             <div className="bg-surface-container-lowest rounded-3xl overflow-hidden border border-outline-variant/10">
               <table className="w-full text-xs">
-                <thead><tr className="text-left text-[9px] font-bold text-on-surface-variant uppercase tracking-widest bg-surface-container-low"><th className="px-6 py-3">Date</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">In / Out</th><th className="px-6 py-3 text-right">Allowance</th></tr></thead>
+                <thead><tr className="text-left text-[9px] font-bold text-on-surface-variant uppercase tracking-widest bg-surface-container-low"><th className="px-6 py-3">Date</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">Project</th><th className="px-6 py-3">In / Out</th><th className="px-6 py-3 text-right">Allowance</th></tr></thead>
                 <tbody>
                   {filteredLogs.length > 0 ? filteredLogs.map(log => (
                     <tr key={log.id} className="border-t border-outline-variant/5">
                       <td className="px-6 py-3 font-medium">{formatDate(log.date)}</td>
-                      <td className="px-6 py-3"><span className={cn("px-1.5 py-0.5 text-[8px] font-bold rounded uppercase", log.status === 'Present' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : log.status === 'Half-Day' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400")}>{log.status}</span></td>
+                      <td className="px-6 py-3"><span className={cn("px-1.5 py-0.5 text-[8px] font-bold rounded uppercase", log.status === 'Full-Day' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : log.status === 'Half-Day' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400")}>{log.status}</span></td>
+                      <td className="px-6 py-3 text-on-surface-variant font-medium">{log.project || '-'}</td>
                       <td className="px-6 py-3 text-on-surface-variant">{formatTime(log.check_in)} - {formatTime(log.check_out)}</td>
                       <td className="px-6 py-3 text-right font-bold text-primary">Rs. {Number(log.allowance || 0).toLocaleString()}</td>
                     </tr>
-                  )) : <tr><td colSpan={4} className="px-6 py-8 text-center text-on-surface-variant italic">No records for attended dates</td></tr>}
+                  )) : <tr><td colSpan={5} className="px-6 py-8 text-center text-on-surface-variant italic">No records for attended dates</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -379,7 +508,7 @@ const EmployeeProfile = () => {
                   className={cn(
                     "relative aspect-square rounded-lg border transition-all flex flex-col items-center justify-center",
                     log ? (
-                      log.status === 'Present' ? "bg-rose-100 border-rose-200 text-rose-950 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-400" :
+                      log.status === 'Full-Day' ? "bg-rose-100 border-rose-200 text-rose-950 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-400" :
                       log.status === 'Half-Day' ? "bg-emerald-100 border-emerald-200 text-emerald-950 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" :
                       "bg-slate-200 border-slate-300 text-slate-950 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400"
                     ) : "bg-surface-container-low border-outline-variant/5 text-on-surface-variant/40"
@@ -401,7 +530,7 @@ const EmployeeProfile = () => {
               ))}
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-3 text-[8px] font-bold uppercase tracking-widest text-on-surface-variant">
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-rose-200 border border-rose-300 dark:bg-rose-900/50 dark:border-rose-800"></span> Present</div>
+              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-rose-200 border border-rose-300 dark:bg-rose-900/50 dark:border-rose-800"></span> Full-Day</div>
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-emerald-200 border border-emerald-300 dark:bg-emerald-900/50 dark:border-emerald-800"></span> Half-Day</div>
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-slate-300 border border-slate-400 dark:bg-slate-700 dark:border-slate-600"></span> Absent</div>
               <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-primary"></span> Allowance</div>
@@ -444,7 +573,7 @@ const EmployeeProfile = () => {
                 <div><label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-1">Check-in</label><input type="time" value={newLog.check_in} onChange={(e) => setNewLog(prev => ({ ...prev, check_in: e.target.value }))} className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-medium text-on-surface" /></div>
                 <div><label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-1">Check-out</label><input type="time" value={newLog.check_out} onChange={(e) => setNewLog(prev => ({ ...prev, check_out: e.target.value }))} className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-medium text-on-surface" /></div>
               </div>
-              <div><label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-1">Status</label><select value={newLog.status} onChange={(e) => setNewLog(prev => ({ ...prev, status: e.target.value }))} className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-medium text-on-surface"><option value="Present">Present</option><option value="Half-Day">Half-Day</option><option value="Absent">Absent</option></select></div>
+              <div><label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-1">Status</label><select value={newLog.status} onChange={(e) => setNewLog(prev => ({ ...prev, status: e.target.value }))} className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-medium text-on-surface"><option value="Full-Day">Full-Day</option><option value="Half-Day">Half-Day</option><option value="Absent">Absent</option></select></div>
               <div><label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-1">Allowance (Rs.)</label><input type="number" value={newLog.allowance} onChange={(e) => setNewLog(prev => ({ ...prev, allowance: Number(e.target.value) }))} className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-medium text-on-surface" /></div>
             </div>
             <div className="flex gap-3 mt-6"><button onClick={() => setShowAddModal(false)} className="flex-1 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm">Cancel</button><button onClick={handleAddAttendance} className="flex-1 py-2.5 bg-primary text-on-primary font-bold rounded-xl text-sm shadow-lg shadow-primary/20">Save</button></div>
@@ -454,12 +583,132 @@ const EmployeeProfile = () => {
 
       {showAdvanceModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-surface-container-lowest rounded-3xl p-6 max-w-md w-full shadow-2xl border border-outline-variant/10">
-            <h3 className="font-headline text-xl font-bold text-on-surface mb-5">Request Advance</h3>
-            <div className="space-y-3">
-              <div><label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-1">Amount (Rs.)</label><input type="number" value={newAdvance.amount} onChange={(e) => setNewAdvance({ amount: Number(e.target.value) })} className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-medium text-on-surface" /></div>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            className="bg-surface-container-lowest rounded-3xl p-6 max-w-md w-full shadow-2xl border border-outline-variant/10"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-headline text-xl font-bold text-on-surface">Request Advance</h3>
+              <button onClick={() => setShowAdvanceModal(false)} className="p-2 hover:bg-surface-container rounded-full transition-colors">
+                <X size={20} className="text-on-surface-variant" />
+              </button>
             </div>
-            <div className="flex gap-3 mt-6"><button onClick={() => setShowAdvanceModal(false)} className="flex-1 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm">Cancel</button><button onClick={handleAddAdvance} className="flex-1 py-2.5 bg-primary text-on-primary font-bold rounded-xl text-sm shadow-lg shadow-primary/20">Submit</button></div>
+
+            <form onSubmit={handleAddAdvance} className="space-y-4">
+              <div className="flex items-center gap-3 p-3 bg-surface-container-low rounded-2xl border border-outline-variant/5">
+                <div className="w-10 h-10 rounded-full overflow-hidden">
+                  <img src={employee.avatar_url || `https://picsum.photos/seed/${employee.id}/200/200`} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </div>
+                <div>
+                  <div className="font-bold text-sm text-on-surface">{employee.name}</div>
+                  <div className="text-[10px] text-on-surface-variant font-bold uppercase">Salary Advance</div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Total Amount (Rs.)</label>
+                <input 
+                  type="number" 
+                  required
+                  autoFocus
+                  value={advanceAmount}
+                  onChange={(e) => setAdvanceAmount(e.target.value)}
+                  className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 text-sm font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Project Breakdown (Optional)</label>
+                  <button 
+                    type="button"
+                    onClick={addBreakdown}
+                    className="text-primary hover:bg-primary/5 p-1 rounded-lg transition-all"
+                    title="Add Project Allocation"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                  {breakdowns.map((b, index) => (
+                    <div key={index} className="flex gap-2 items-center bg-surface-container-low p-2 rounded-xl border border-outline-variant/5 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="flex-1 min-w-0">
+                        {b.project_id === 0 ? (
+                          <select 
+                            required
+                            value={b.project_id}
+                            onChange={(e) => updateBreakdown(index, 'project_id', Number(e.target.value))}
+                            className="w-full bg-surface-container-lowest border-none rounded-lg py-1 px-2 text-[10px] font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                          >
+                            <option value="0">Select Project</option>
+                            {projects.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <>
+                            <div className="text-[10px] font-bold text-on-surface truncate">{b.project_name || 'Unknown Project'}</div>
+                            <div className="text-[9px] text-on-surface-variant font-medium">Payable: Rs. {Number(b.payable || 0).toLocaleString()}</div>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-on-surface-variant">Rs.</span>
+                        <input 
+                          type="number" 
+                          required
+                          value={b.amount}
+                          onChange={(e) => updateBreakdown(index, 'amount', e.target.value)}
+                          className="w-24 bg-surface-container-lowest border-none rounded-lg py-1.5 px-2 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary transition-all"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => removeBreakdown(index)}
+                        className="p-2 text-error hover:bg-error/10 rounded-xl transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+
+                  {breakdowns.length > 0 && (
+                    <div className="flex justify-between items-center px-3 py-2 bg-surface-container-low rounded-xl border border-outline-variant/5">
+                      <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Remaining</span>
+                      <span className={cn(
+                        "text-xs font-bold",
+                        Math.abs(breakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0) - parseFloat(advanceAmount || '0')) < 0.01 
+                          ? "text-emerald-500" 
+                          : "text-error"
+                      )}>
+                        Rs. {breakdowns.reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button"
+                  onClick={() => setShowAdvanceModal(false)}
+                  className="flex-1 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  disabled={isSubmitting || !advanceAmount}
+                  className="flex-1 bg-primary text-on-primary py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Processing...' : 'Confirm'}
+                </button>
+              </div>
+            </form>
           </motion.div>
         </div>
       )}
