@@ -3,7 +3,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { query } from "./src/lib/db";
+import { query } from "./src/lib/db.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1875,7 +1875,7 @@ export async function setupApp() {
       console.error("Failed to load Vite:", e);
     }
   } else {
-    const distPath = path.join(__dirname, "dist");
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     
     // Catch-all route for SPA fallback
@@ -1885,7 +1885,7 @@ export async function setupApp() {
         res.sendFile(indexPath);
       } else {
         // Fallback to root index.html if dist/index.html is missing (e.g. during some build phases)
-        const rootIndexPath = path.join(__dirname, "index.html");
+        const rootIndexPath = path.join(process.cwd(), "index.html");
         if (fs.existsSync(rootIndexPath)) {
           res.sendFile(rootIndexPath);
         } else {
