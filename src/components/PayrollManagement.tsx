@@ -731,19 +731,9 @@ const PayrollManagement = () => {
                               setShowAdvanceModal(true);
                             }}
                             className="p-2 bg-primary/5 text-primary rounded-lg hover:bg-primary hover:text-on-primary transition-all"
-                            title="Add Advance"
+                            title="Advance"
                           >
                             <DollarSign size={16} />
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setSelectedEmployee(emp);
-                              setShowLoanModal(true);
-                            }}
-                            className="p-2 bg-primary/5 text-primary rounded-lg hover:bg-primary hover:text-on-primary transition-all"
-                            title="Add Loan"
-                          >
-                            <CreditCard size={16} />
                           </button>
                           <button 
                             onClick={() => {
@@ -754,16 +744,6 @@ const PayrollManagement = () => {
                             title="History"
                           >
                             <History size={16} />
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setSelectedEmployee(emp);
-                              setShowAdvanceModal(true);
-                            }}
-                            className="p-2 bg-primary/5 text-primary rounded-lg hover:bg-primary hover:text-on-primary transition-all"
-                            title="Advance"
-                          >
-                            <DollarSign size={16} />
                           </button>
                         </div>
                       </td>
