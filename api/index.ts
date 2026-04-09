@@ -1,4 +1,4 @@
-import app, { initDb, setupApp } from '../server';
+import app, { initDb } from '../server.js';
 
 let initializationPromise: Promise<void> | null = null;
 
@@ -7,10 +7,7 @@ export default async (req: any, res: any) => {
     if (!initializationPromise) {
       console.log('Starting Vercel serverless function initialization...');
       const start = Date.now();
-      initializationPromise = Promise.all([
-        initDb(),
-        setupApp()
-      ]).then(() => {
+      initializationPromise = initDb().then(() => {
         console.log(`Initialization complete in ${Date.now() - start}ms.`);
       }).catch(err => {
         console.error('Initialization failed:', err);
@@ -21,6 +18,8 @@ export default async (req: any, res: any) => {
     
     await initializationPromise;
     
+    // Vercel's proxy handles the /api prefix, but our express app expects it too
+    // if the routes are defined with /api.
     return app(req, res);
   } catch (error: any) {
     console.error('Vercel Function Error:', error);
