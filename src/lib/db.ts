@@ -8,10 +8,12 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const { Pool } = pg;
 
-let pool: pg.Pool | null = null;
+// Use a global variable to preserve the pool across hot reloads in development
+// and potentially across function invocations in some serverless environments.
+const globalForPg = global as unknown as { pool: pg.Pool };
 
 export function getPool() {
-  if (!pool) {
+  if (!globalForPg.pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error('DATABASE_URL environment variable is missing! Please set it in Vercel project settings.');
@@ -19,43 +21,51 @@ export function getPool() {
     
     console.log('Initializing database pool...');
     
-    pool = new Pool({
+    globalForPg.pool = new Pool({
       connectionString,
       ssl: {
         rejectUnauthorized: false,
       },
       // Serverless optimizations:
-      max: process.env.VERCEL === '1' ? 1 : 10, // Limit connections in serverless
-      idleTimeoutMillis: 30000, // Keep connections alive longer in serverless to avoid re-connect overhead
-      connectionTimeoutMillis: 10000, // Wait up to 10s for a connection
+      // For free tier DBs with limited connections, we should keep 'max' very low.
+      // If multiple serverless instances are running, each will take 'max' connections.
+      max: process.env.VERCEL === '1' ? 2 : 10, 
+      idleTimeoutMillis: 10000, // Close idle connections faster to free up slots for other instances
+      connectionTimeoutMillis: 5000, // Fail fast if we can't get a connection
+      allowExitOnIdle: true, // Allow the process to exit if the pool is idle
     });
 
-    pool.on('error', (err) => {
+    globalForPg.pool.on('error', (err) => {
       console.error('Unexpected error on idle client', err);
     });
     
-    console.log('Database pool initialized with SSL bypass (rejectUnauthorized: false)');
+    console.log(`Database pool initialized (max connections: ${process.env.VERCEL === '1' ? 2 : 10})`);
   }
-  return pool;
+  return globalForPg.pool;
 }
 
 export const query = async (text: string, params?: any[]) => {
   const p = getPool();
-  let retries = 3;
+  let retries = 5; // Increased retries for limited connection environments
+  let delay = 200;
+  
   while (retries > 0) {
     try {
       return await p.query(text, params);
     } catch (err: any) {
       // Retry on connection exhaustion errors
-      if (
+      const isConnectionError = 
         err.message.includes('remaining connection slots') || 
         err.message.includes('too many connections') ||
-        err.message.includes('connection limit exceeded')
-      ) {
+        err.message.includes('connection limit exceeded') ||
+        err.message.includes('Pool is full') ||
+        err.message.includes('timeout exceeded when acquiring a connection');
+
+      if (isConnectionError && retries > 1) {
         retries--;
-        if (retries === 0) throw err;
-        console.warn(`Database connection busy, retrying... (${retries} retries left)`);
-        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
+        console.warn(`Database connection busy, retrying in ${delay}ms... (${retries} retries left)`);
+        await new Promise(resolve => setTimeout(resolve, delay + Math.random() * 200));
+        delay *= 2; // Exponential backoff
         continue;
       }
       throw err;

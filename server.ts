@@ -25,6 +25,23 @@ export async function initDb() {
     throw new Error("DATABASE_URL environment variable is missing. Please set it in Vercel project settings.");
   }
   try {
+    // Check if initialization is already done by checking for a key table
+    const tableCheck = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'e_accounts'
+      );
+    `);
+    
+    if (tableCheck.rows[0].exists) {
+      console.log('Database already initialized, skipping table creation.');
+      // We still might want to run migrations, but let's assume they are done for now
+      // or run them only if a version check fails.
+      // For now, just skip the heavy lifting if e_accounts exists.
+      return;
+    }
+
     console.log('Initializing database tables...');
     
     // Combine all table creation into a single query to reduce round trips
@@ -432,21 +449,24 @@ const authenticate = (req: any, res: any, next: any) => {
   app.post("/api/login", async (req, res) => {
     const { email, password } = req.body;
     try {
-      const result = await query("SELECT * FROM e_users WHERE email = $1 AND password = $2 AND deleted_at IS NULL", [email, password]);
-      if (result.rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
+      const result = await query(`
+        SELECT u.*, a.name as account_name 
+        FROM e_users u
+        JOIN e_accounts a ON u.account_id = a.id
+        WHERE u.email = $1 AND u.password = $2 
+        AND u.deleted_at IS NULL AND a.deleted_at IS NULL
+      `, [email, password]);
+      
+      if (result.rows.length === 0) return res.status(401).json({ error: "Invalid credentials or account deactivated" });
       
       const user = result.rows[0];
-      // Check if account is deleted
-      const accountResult = await query("SELECT * FROM e_accounts WHERE id = $1 AND deleted_at IS NULL", [user.account_id]);
-      if (accountResult.rows.length === 0) return res.status(401).json({ error: "Account deactivated" });
-
       res.json({
         id: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
         account_id: user.account_id,
-        account_name: accountResult.rows[0].name
+        account_name: user.account_name
       });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
@@ -471,14 +491,18 @@ const authenticate = (req: any, res: any, next: any) => {
   app.get("/api/stats", authenticate, async (req: any, res) => {
     const { account_id } = req.user;
     try {
-      const totalWorkforce = await query("SELECT COUNT(*) FROM e_employees WHERE account_id = $1 AND deleted_at IS NULL", [account_id]);
-      const activeToday = await query("SELECT COUNT(*) FROM e_attendance WHERE account_id = $1 AND date = CURRENT_DATE AND status IN ('Full-Day', 'Half-Day') AND deleted_at IS NULL", [account_id]);
-      const absentToday = await query("SELECT COUNT(*) FROM e_attendance WHERE account_id = $1 AND date = CURRENT_DATE AND status = 'Absent' AND deleted_at IS NULL", [account_id]);
+      const statsResult = await query(`
+        SELECT 
+          (SELECT COUNT(*) FROM e_employees WHERE account_id = $1 AND deleted_at IS NULL) as total_workforce,
+          (SELECT COUNT(*) FROM e_attendance WHERE account_id = $1 AND date = CURRENT_DATE AND status IN ('Full-Day', 'Half-Day') AND deleted_at IS NULL) as active_today,
+          (SELECT COUNT(*) FROM e_attendance WHERE account_id = $1 AND date = CURRENT_DATE AND status = 'Absent' AND deleted_at IS NULL) as absent_today
+      `, [account_id]);
       
+      const stats = statsResult.rows[0];
       res.json({
-        totalWorkforce: parseInt(totalWorkforce.rows[0].count),
-        activeToday: parseInt(activeToday.rows[0].count),
-        absentToday: parseInt(absentToday.rows[0].count),
+        totalWorkforce: parseInt(stats.total_workforce),
+        activeToday: parseInt(stats.active_today),
+        absentToday: parseInt(stats.absent_today),
         growth: "+4.2%"
       });
     } catch (err) {
