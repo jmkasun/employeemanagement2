@@ -322,7 +322,7 @@ export async function initDb() {
         ALTER TABLE e_attendance 
         ADD CONSTRAINT e_attendance_employee_account_fkey 
         FOREIGN KEY (account_id, employee_id) 
-        REFERENCES e_employees(account_id, employee_id) 
+        REFERENCES e_employees(account_id, id) 
         ON DELETE CASCADE
       `).catch(() => {});
 
@@ -892,7 +892,7 @@ const authenticate = (req: any, res: any, next: any) => {
     const { account_id } = req.user;
     const { employee_id, date, check_in, check_out, status: providedStatus, section_id, project_id, units, allowance, salary_per_unit } = req.body;
     try {
-      const status = await getStatusWithThreshold(account_id, check_in);
+      const status = providedStatus || await getStatusWithThreshold(account_id, check_in);
       
       // If salary_per_unit is not provided or is 0, fetch current employee salary
       let finalSalary = salary_per_unit;
@@ -927,6 +927,10 @@ const authenticate = (req: any, res: any, next: any) => {
         LEFT JOIN e_projects p ON a.project_id = p.id
         WHERE a.id = $1
       `, [result.rows[0].id]);
+      
+      if (joinedResult.rows.length === 0) {
+        return res.status(404).json({ error: "Attendance record created but failed to retrieve details. Please refresh." });
+      }
       
       res.json(joinedResult.rows[0]);
     } catch (err) {
@@ -994,7 +998,8 @@ const authenticate = (req: any, res: any, next: any) => {
     const { id } = req.params;
     const { check_in, check_out, status: providedStatus, section_id, project_id, date, units, allowance, salary_per_unit, employee_id } = req.body;
     try {
-      const status = await getStatusWithThreshold(account_id, check_in);
+      // Use provided status if available, otherwise calculate based on threshold
+      const status = providedStatus || await getStatusWithThreshold(account_id, check_in);
       
       // If salary_per_unit is not provided or is 0, fetch current employee salary
       let finalSalary = salary_per_unit;
@@ -1033,6 +1038,10 @@ const authenticate = (req: any, res: any, next: any) => {
         LEFT JOIN e_projects p ON a.project_id = p.id
         WHERE a.id = $1
       `, [id]);
+
+      if (joinedResult.rows.length === 0) {
+        return res.status(404).json({ error: "Attendance record updated but failed to retrieve details. Please refresh." });
+      }
 
       res.json(joinedResult.rows[0]);
     } catch (err) {

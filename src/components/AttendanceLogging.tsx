@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { UserPlus, Calendar, CheckCircle2, Clock, XCircle, ChevronRight, Briefcase, LogIn, LogOut, Users, Fingerprint, RefreshCw, History, X, Download, FileText, Search, Pencil } from 'lucide-react';
+import { UserPlus, Calendar, CheckCircle2, Clock, XCircle, ChevronRight, Briefcase, LogIn, LogOut, Users, Fingerprint, RefreshCw, History, X, Download, FileText, Search, Pencil, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Employee, Attendance, Project } from '@/src/types';
 import { cn, formatTime, formatDate } from '@/src/lib/utils';
@@ -69,16 +69,21 @@ const AttendanceLogging = () => {
     allowance: 0,
     salary_per_unit: 0,
     project_id: 0,
-    date: ''
+    date: '',
+    status: 'Full-Day'
   });
 
   const fetchAlreadyAttended = async (date: string) => {
     try {
       const res = await fetchWithAuth(`/api/attendance?date=${date}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setDailyLogs(data);
-        setAlreadyAttendedIds(data.map((log: any) => log.employee_id));
+      if (!res.ok) return;
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setDailyLogs(data);
+          setAlreadyAttendedIds(data.map((log: any) => log.employee_id));
+        }
       }
     } catch (err) {
       console.error('Error fetching already attended:', err);
@@ -128,7 +133,14 @@ const AttendanceLogging = () => {
     
     const fetchHistory = (date: string) => {
       fetchWithAuth(`/api/attendance?date=${date}`)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) return [];
+          const contentType = res.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            return res.json().catch(() => []);
+          }
+          return [];
+        })
         .then(data => {
           if (Array.isArray(data)) {
             const unique = data.reduce((acc: Attendance[], current: Attendance) => {
@@ -219,6 +231,11 @@ const AttendanceLogging = () => {
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
+    if (!formData.employee_id || formData.employee_id === 0) {
+      alert('Please select an employee first');
+      return;
+    }
+    
     const dataToSubmit = { ...formData };
     const currentTime = getISTTime();
 
@@ -249,40 +266,53 @@ const AttendanceLogging = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dataToSubmit)
       });
-      if (res.ok) {
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const newLog = await res.json();
-          
-          // Refresh history and stats
-          fetchAlreadyAttended(formData.date);
-          const fetchHistory = (date: string) => {
-            fetchWithAuth(`/api/attendance?date=${date}`)
-              .then(res => res.json())
-              .then(data => {
-                if (Array.isArray(data)) {
-                  const unique = data.reduce((acc: Attendance[], current: Attendance) => {
-                    if (!acc.find(item => item.id === current.id)) return acc.concat([current]);
-                    return acc;
-                  }, []);
-                  setHistoryLogs(unique);
-                }
-              });
-          };
-          fetchHistory(historyDate);
 
-          setFormData({ 
-            id: null,
-            employee_id: 0, 
-            section_id: 0,
-            project_id: 0, 
-            check_in: '', 
-            check_out: '',
-            date: new Date().toISOString().split('T')[0]
-          });
-          setSearchTerm('');
-          setSelectedEmployee(null);
+      const contentType = res.headers.get('content-type');
+      let errorData = null;
+      
+      if (!res.ok) {
+        if (contentType && contentType.includes('application/json')) {
+          errorData = await res.json();
         }
+        throw new Error(errorData?.error || `Server returned ${res.status}: ${res.statusText}`);
+      }
+
+      if (contentType && contentType.includes('application/json')) {
+        const newLog = await res.json();
+        
+        // Refresh history and stats
+        fetchAlreadyAttended(formData.date);
+        const fetchHistory = (date: string) => {
+          fetchWithAuth(`/api/attendance?date=${date}`)
+            .then(res => {
+              if (!res.ok) return [];
+              return res.json().catch(() => []);
+            })
+            .then(data => {
+              if (Array.isArray(data)) {
+                const unique = data.reduce((acc: Attendance[], current: Attendance) => {
+                  if (!acc.find(item => item.id === current.id)) return acc.concat([current]);
+                  return acc;
+                }, []);
+                setHistoryLogs(unique);
+              }
+            });
+        };
+        fetchHistory(historyDate);
+
+        setFormData({ 
+          id: null,
+          employee_id: 0, 
+          section_id: 0,
+          project_id: 0, 
+          check_in: '', 
+          check_out: '',
+          date: new Date().toISOString().split('T')[0]
+        });
+        setSearchTerm('');
+        setSelectedEmployee(null);
+      } else {
+        throw new Error('Server returned non-JSON response');
       }
     } catch (err) {
       console.error('Error submitting attendance:', err);
@@ -296,18 +326,26 @@ const AttendanceLogging = () => {
     
     try {
       const res = await fetchWithAuth(`/api/employees/${emp.id}/attendance-status`);
-      const data = await res.json();
-      
-      setFormData(prev => ({
-        ...prev,
-        employee_id: emp.id,
-        section_id: data.last_section_id || 0,
-        project_id: data.last_project_id || 0,
-        id: data.today?.id || null,
-        check_in: data.today?.check_in || '',
-        check_out: data.today?.check_out || '',
-        units: data.today?.units || 0
-      }));
+      if (!res.ok) {
+        setFormData(prev => ({ ...prev, employee_id: emp.id }));
+        return;
+      }
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        setFormData(prev => ({
+          ...prev,
+          employee_id: emp.id,
+          section_id: data.last_section_id || 0,
+          project_id: data.last_project_id || 0,
+          id: data.today?.id || null,
+          check_in: data.today?.check_in || '',
+          check_out: data.today?.check_out || '',
+          units: data.today?.units || 0
+        }));
+      } else {
+        setFormData(prev => ({ ...prev, employee_id: emp.id }));
+      }
     } catch (err) {
       console.error('Error fetching employee status:', err);
       setFormData(prev => ({ ...prev, employee_id: emp.id, section_id: 0, project_id: 0 }));
@@ -329,16 +367,24 @@ const AttendanceLogging = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employee_id: fingerprintId })
       });
-      const data = await res.json();
+      
+      const contentType = res.headers.get('content-type');
       if (res.ok) {
-        setFingerprintStatus({ message: data.message, type: 'success' });
-        setRecentLogs(prev => {
-          const filtered = prev.filter(log => log.id !== data.data.id);
-          return [data.data, ...filtered].slice(0, 5);
-        });
-        setFingerprintId('');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          setFingerprintStatus({ message: data.message, type: 'success' });
+          setRecentLogs(prev => {
+            const filtered = prev.filter(log => log.id !== data.data.id);
+            return [data.data, ...filtered].slice(0, 5);
+          });
+          setFingerprintId('');
+        }
       } else {
-        setFingerprintStatus({ message: data.error || 'Scan failed', type: 'error' });
+        let errorData = null;
+        if (contentType && contentType.includes('application/json')) {
+          errorData = await res.json();
+        }
+        setFingerprintStatus({ message: errorData?.error || 'Scan failed', type: 'error' });
       }
     } catch (err) {
       setFingerprintStatus({ message: 'Connection error', type: 'error' });
@@ -351,10 +397,13 @@ const AttendanceLogging = () => {
     try {
       const res = await fetchWithAuth(`/api/attendance?employee_id=${employeeId}`);
       if (res.ok) {
-        const data = await res.json();
-        setEmployeeHistory(data);
-        setHistoryEmployeeName(employeeName);
-        setShowHistoryModal(true);
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          setEmployeeHistory(data);
+          setHistoryEmployeeName(employeeName);
+          setShowHistoryModal(true);
+        }
       }
     } catch (err) {
       console.error('Error fetching employee history:', err);
@@ -377,9 +426,14 @@ const AttendanceLogging = () => {
       if (filterProjectId) url += `&project_id=${filterProjectId}`;
 
       const res = await fetchWithAuth(url);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setFullHistoryLogs(data);
+      if (res.ok) {
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setFullHistoryLogs(data);
+          }
+        }
       }
     } catch (err) {
       console.error('Error fetching full history:', err);
@@ -429,7 +483,8 @@ const AttendanceLogging = () => {
         allowance: log.allowance || 0,
         salary_per_unit: log.salary_per_unit || 0,
         project_id: log.project_id || 0,
-        date: log.date.split('T')[0]
+        date: log.date.split('T')[0],
+        status: log.status || 'Full-Day'
       });
       setShowEditModal(true);
     }
@@ -444,12 +499,22 @@ const AttendanceLogging = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editFormData)
       });
+      
+      const contentType = res.headers.get('content-type');
       if (res.ok) {
-        const updated = await res.json();
-        setFullHistoryLogs(prev => prev.map(log => log.id === updated.id ? updated : log));
-        setHistoryLogs(prev => prev.map(log => log.id === updated.id ? updated : log));
-        setShowEditModal(false);
-        setEditingRecord(null);
+        if (contentType && contentType.includes('application/json')) {
+          const updated = await res.json();
+          setFullHistoryLogs(prev => prev.map(log => log.id === updated.id ? updated : log));
+          setHistoryLogs(prev => prev.map(log => log.id === updated.id ? updated : log));
+          setShowEditModal(false);
+          setEditingRecord(null);
+        }
+      } else {
+        let errorData = null;
+        if (contentType && contentType.includes('application/json')) {
+          errorData = await res.json();
+        }
+        alert(errorData?.error || 'Failed to update attendance');
       }
     } catch (err) {
       console.error('Error updating attendance:', err);
@@ -483,13 +548,18 @@ const AttendanceLogging = () => {
       // Refresh history
       fetchAlreadyAttended(formData.date);
       const res = await fetchWithAuth(`/api/attendance?date=${historyDate}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        const unique = data.reduce((acc: Attendance[], current: Attendance) => {
-          if (!acc.find(item => item.id === current.id)) return acc.concat([current]);
-          return acc;
-        }, []);
-        setHistoryLogs(unique);
+      if (res.ok) {
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            const unique = data.reduce((acc: Attendance[], current: Attendance) => {
+              if (!acc.find(item => item.id === current.id)) return acc.concat([current]);
+              return acc;
+            }, []);
+            setHistoryLogs(unique);
+          }
+        }
       }
 
       // Refresh already attended for bulk modal
@@ -694,7 +764,7 @@ const AttendanceLogging = () => {
             </div>
 
             {/* Form Fields */}
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-4 w-full">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
               <div className="space-y-1">
                 <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Working Project</label>
                 <div className="relative">
@@ -712,58 +782,45 @@ const AttendanceLogging = () => {
 
               <div className="space-y-1">
                 <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">In Time (IST)</label>
-                <div className="flex gap-1">
-                  <div className="relative flex-1">
-                    <input 
-                      type="time"
-                      value={formData.check_in}
-                      onChange={(e) => setFormData({ ...formData, check_in: e.target.value })}
-                      className="w-full bg-surface-container-highest border-none rounded-xl px-3 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
+                <div className="relative">
+                  <input 
+                    type="time"
+                    value={formData.check_in}
+                    onChange={(e) => setFormData({ ...formData, check_in: e.target.value })}
+                    className="w-full bg-surface-container-highest border-none rounded-xl pl-3 pr-10 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                  />
                   <button 
                     type="button"
                     onClick={() => setFormData({ ...formData, check_in: getISTTime() })}
-                    className="px-2 bg-surface-container-high rounded-xl text-[10px] font-bold hover:bg-primary/10 transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                    title="Set to Current Time"
                   >
-                    Now
+                    <Zap size={14} fill="currentColor" />
                   </button>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Out Time (IST)</label>
-                <div className="flex gap-1">
-                  <div className="relative flex-1">
-                    <input 
-                      type="time"
-                      value={formData.check_out}
-                      onChange={(e) => setFormData({ ...formData, check_out: e.target.value })}
-                      className="w-full bg-surface-container-highest border-none rounded-xl px-3 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
+                <div className="relative">
+                  <input 
+                    type="time"
+                    value={formData.check_out}
+                    onChange={(e) => setFormData({ ...formData, check_out: e.target.value })}
+                    className="w-full bg-surface-container-highest border-none rounded-xl pl-3 pr-10 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                  />
                   <button 
                     type="button"
                     onClick={() => setFormData({ ...formData, check_out: getISTTime() })}
-                    className="px-2 bg-surface-container-high rounded-xl text-[10px] font-bold hover:bg-primary/10 transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                    title="Set to Current Time"
                   >
-                    Now
+                    <Zap size={14} fill="currentColor" />
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1 flex flex-col justify-end">
-                <button 
-                  type="button"
-                  onClick={() => handleSubmit()}
-                  className="w-full bg-primary text-on-primary px-4 py-3 rounded-xl font-bold text-sm hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-                >
-                  <CheckCircle2 size={18} />
-                  {formData.id ? 'Update' : 'Log'}
-                </button>
-              </div>
-
-              <div className="space-y-1 flex flex-col justify-end">
+              <div className="space-y-1 flex flex-col justify-end gap-2">
                 {formData.id && (
                   <button 
                     type="button"
@@ -781,28 +838,37 @@ const AttendanceLogging = () => {
                       setSearchTerm('');
                       setSelectedEmployee(null);
                     }}
-                    className="w-full bg-surface-container-high text-on-surface px-4 py-2 rounded-xl font-bold text-xs hover:bg-surface-container-highest transition-all flex items-center justify-center gap-2 mb-2"
+                    className="w-full bg-surface-container-high text-on-surface px-4 py-2 rounded-xl font-bold text-xs hover:bg-surface-container-highest transition-all flex items-center justify-center gap-2"
                   >
                     <X size={14} />
                     Cancel Edit
                   </button>
                 )}
-                {selectedEmployee?.salary_type === 'Per-unit' && (
-                  <>
-                    <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-                      Units ({selectedEmployee.unit_description})
-                    </label>
-                    <input 
-                      type="number"
-                      step="0.01"
-                      value={formData.units}
-                      onChange={(e) => setFormData({ ...formData, units: parseFloat(e.target.value) || 0 })}
-                      className="w-full bg-surface-container-highest border-none rounded-xl px-3 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
-                      placeholder="0.00"
-                    />
-                  </>
-                )}
+                <button 
+                  type="button"
+                  onClick={() => handleSubmit()}
+                  className="w-full bg-primary text-on-primary px-4 py-3 rounded-xl font-bold text-sm hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+                >
+                  <CheckCircle2 size={18} />
+                  {formData.id ? 'Update' : 'Log Attendance'}
+                </button>
               </div>
+
+              {selectedEmployee?.salary_type === 'Per-unit' && (
+                <div className="space-y-1 col-span-full sm:col-span-1">
+                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                    Units ({selectedEmployee.unit_description})
+                  </label>
+                  <input 
+                    type="number"
+                    step="0.01"
+                    value={formData.units}
+                    onChange={(e) => setFormData({ ...formData, units: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-surface-container-highest border-none rounded-xl px-3 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                    placeholder="0.00"
+                  />
+                </div>
+              )}
             </div>
           </div>
           
@@ -829,7 +895,16 @@ const AttendanceLogging = () => {
                 className={cn("text-primary cursor-pointer", isFingerprintLoading && "animate-spin")} 
                 onClick={() => {
                   setHistoryLogs([]);
-                  fetchWithAuth(`/api/attendance?date=${historyDate}`).then(res => res.json()).then(data => setHistoryLogs(data));
+                  fetchWithAuth(`/api/attendance?date=${historyDate}`)
+                    .then(res => {
+                      if (!res.ok) return [];
+                      const contentType = res.headers.get('content-type');
+                      if (contentType && contentType.includes('application/json')) {
+                        return res.json().catch(() => []);
+                      }
+                      return [];
+                    })
+                    .then(data => setHistoryLogs(data));
                 }}
               />
               <h3 className="font-headline font-bold text-lg">Attendance Summary</h3>
@@ -875,8 +950,8 @@ const AttendanceLogging = () => {
                 <tr className="border-b border-outline-variant">
                   <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low">Employee</th>
                   <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low">Project</th>
-                  <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low">In Time</th>
-                  <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low">Out Time</th>
+                  <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low min-w-[100px]">In Time</th>
+                  <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low min-w-[100px]">Out Time</th>
                   <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low">Status</th>
                   <th className="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low">Action</th>
                 </tr>
@@ -1535,37 +1610,39 @@ const AttendanceLogging = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">In Time</label>
-                      <div className="flex gap-2">
+                      <div className="relative">
                         <input 
                           type="time"
                           value={bulkFormData.check_in}
                           onChange={(e) => setBulkFormData({ ...bulkFormData, check_in: e.target.value })}
-                          className="flex-1 bg-surface-container-highest border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                          className="w-full bg-surface-container-highest border-none rounded-xl pl-4 pr-10 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
                         />
                         <button 
                           type="button"
                           onClick={() => setBulkFormData({ ...bulkFormData, check_in: getISTTime() })}
-                          className="px-3 bg-surface-container-high rounded-xl text-[10px] font-bold hover:bg-primary/10 transition-colors"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                          title="Set to Current Time"
                         >
-                          Now
+                          <Zap size={14} fill="currentColor" />
                         </button>
                       </div>
                     </div>
                     <div className="space-y-1">
                       <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Out Time</label>
-                      <div className="flex gap-2">
+                      <div className="relative">
                         <input 
                           type="time"
                           value={bulkFormData.check_out}
                           onChange={(e) => setBulkFormData({ ...bulkFormData, check_out: e.target.value })}
-                          className="flex-1 bg-surface-container-highest border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                          className="w-full bg-surface-container-highest border-none rounded-xl pl-4 pr-10 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
                         />
                         <button 
                           type="button"
                           onClick={() => setBulkFormData({ ...bulkFormData, check_out: getISTTime() })}
-                          className="px-3 bg-surface-container-high rounded-xl text-[10px] font-bold hover:bg-primary/10 transition-colors"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                          title="Set to Current Time"
                         >
-                          Now
+                          <Zap size={14} fill="currentColor" />
                         </button>
                       </div>
                     </div>
@@ -1660,21 +1737,41 @@ const AttendanceLogging = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Check In</label>
-                  <input 
-                    type="time"
-                    value={editFormData.check_in}
-                    onChange={(e) => setEditFormData({ ...editFormData, check_in: e.target.value })}
-                    className="w-full bg-surface-container-highest border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
-                  />
+                  <div className="relative">
+                    <input 
+                      type="time"
+                      value={editFormData.check_in}
+                      onChange={(e) => setEditFormData({ ...editFormData, check_in: e.target.value })}
+                      className="w-full bg-surface-container-highest border-none rounded-xl pl-4 pr-10 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setEditFormData({ ...editFormData, check_in: getISTTime() })}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                      title="Set to Current Time"
+                    >
+                      <Zap size={14} fill="currentColor" />
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Check Out</label>
-                  <input 
-                    type="time"
-                    value={editFormData.check_out}
-                    onChange={(e) => setEditFormData({ ...editFormData, check_out: e.target.value })}
-                    className="w-full bg-surface-container-highest border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
-                  />
+                  <div className="relative">
+                    <input 
+                      type="time"
+                      value={editFormData.check_out}
+                      onChange={(e) => setEditFormData({ ...editFormData, check_out: e.target.value })}
+                      className="w-full bg-surface-container-highest border-none rounded-xl pl-4 pr-10 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setEditFormData({ ...editFormData, check_out: getISTTime() })}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                      title="Set to Current Time"
+                    >
+                      <Zap size={14} fill="currentColor" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1699,6 +1796,20 @@ const AttendanceLogging = () => {
                     className="w-full bg-surface-container-highest border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Status</label>
+                <select 
+                  value={editFormData.status}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                  className="w-full bg-surface-container-highest border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary"
+                >
+                  <option value="Full-Day">Full-Day</option>
+                  <option value="Half-Day">Half-Day</option>
+                  <option value="Absent">Absent</option>
+                  <option value="Leave">Leave</option>
+                </select>
               </div>
 
               <div className="pt-4">
