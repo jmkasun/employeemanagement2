@@ -1,4 +1,4 @@
-import { query } from './db';
+import { query } from './db.js';
 
 export async function initDb() {
   if (!process.env.DATABASE_URL) {
@@ -6,6 +6,13 @@ export async function initDb() {
   }
   
   try {
+    // Check if database is already initialized to save time on cold starts
+    const tableCheck = await query("SELECT 1 FROM information_schema.tables WHERE table_name = 'e_users' LIMIT 1");
+    if (tableCheck.rows.length > 0) {
+      console.log('Database already initialized, skipping table creation.');
+      return;
+    }
+    
     console.log('Initializing database tables...');
     
     // 1. Core Tables (Essential for app to start)

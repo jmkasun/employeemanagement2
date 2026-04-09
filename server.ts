@@ -2,9 +2,9 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { initDb } from "./src/lib/initDb";
+import { initDb } from "./src/lib/initDb.js";
 export { initDb };
-import { query } from "./src/lib/db";
+import { query } from "./src/lib/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
