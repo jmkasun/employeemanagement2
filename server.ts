@@ -12,6 +12,24 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 console.log('Server.ts module loading...');
+
+// Lazy Database Initialization Middleware
+let dbInitialized = false;
+app.use(async (req, res, next) => {
+  if (!dbInitialized && req.path.startsWith('/api') && req.path !== '/api/health') {
+    try {
+      console.log('Vercel/Server: Lazy initializing database...');
+      await initDb();
+      dbInitialized = true;
+      console.log('Vercel/Server: Database initialized successfully');
+    } catch (err) {
+      console.error('Vercel/Server: Database initialization failed:', err);
+      // We don't block the request here, let the route handler fail if it needs the DB
+    }
+  }
+  next();
+});
+
 const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
@@ -1476,9 +1494,13 @@ const authenticate = (req: any, res: any, next: any) => {
     }
   });
 
+let setupPromise: Promise<void> | null = null;
 export async function setupApp() {
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1") {
+  if (setupPromise) return setupPromise;
+  
+  setupPromise = (async () => {
+    // Vite middleware for development
+    if (process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1") {
     try {
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
@@ -1509,36 +1531,52 @@ export async function setupApp() {
       }
     });
   }
+
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error("Unhandled Express Error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: "Internal Server Error", 
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      });
+    }
+  });
+})();
+  
+  return setupPromise;
 }
 
-if (process.env.VERCEL !== "1") {
-  const start = async () => {
-    try {
+// Start logic
+const start = async () => {
+  try {
+    // Always setup the app (routes, static files, etc.)
+    await setupApp();
+    
+    // Only start the server listener if NOT on Vercel
+    if (process.env.VERCEL !== "1") {
+      console.log("Starting local server...");
       if (process.env.DATABASE_URL) {
         await initDb();
       } else {
         console.warn("DATABASE_URL environment variable is missing. Database initialization skipped.");
       }
-      await setupApp();
+      
       app.listen(PORT, "0.0.0.0", () => {
         console.log(`Server running on http://localhost:${PORT}`);
       });
-    } catch (err) {
-      console.error("Fatal server error during startup:", err);
-      // Even if database fails, we should try to start the app to pass health checks
-      // and allow the user to see error messages in logs or UI
-      try {
-        await setupApp();
-        app.listen(PORT, "0.0.0.0", () => {
-          console.log(`Server running on http://localhost:${PORT} (with startup errors)`);
-        });
-      } catch (setupErr) {
-        console.error("Failed to even setup app:", setupErr);
-        process.exit(1);
-      }
+    } else {
+      console.log("Vercel environment detected, listener skipped (Vercel handles it).");
     }
-  };
-  start();
-}
+  } catch (err) {
+    console.error("Fatal server error during startup:", err);
+    if (process.env.VERCEL !== "1") {
+      process.exit(1);
+    }
+  }
+};
+
+start();
 
 export default app;
