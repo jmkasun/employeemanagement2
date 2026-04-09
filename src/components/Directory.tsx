@@ -303,7 +303,7 @@ const Directory = () => {
             className="bg-gradient-to-br from-primary to-primary-container text-on-primary px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-all"
           >
             <UserPlus size={20} />
-            + Add
+            Add Employee
           </button>
         </div>
       </section>
