@@ -1,14 +1,9 @@
 {
   "version": 2,
-  "cleanUrls": true,
-  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/index.ts"
-    },
-    {
-      "handle": "filesystem"
     },
     {
       "source": "/(.*)",
@@ -18,8 +13,7 @@
   "functions": {
     "api/index.ts": {
       "memory": 1024,
-      "maxDuration": 60,
-      "includeFiles": "dist/**"
+      "maxDuration": 60
     }
   }
 }
